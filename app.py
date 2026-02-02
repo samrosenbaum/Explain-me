@@ -1,7 +1,7 @@
 """
 Slack Jargon Explainer - Explains technical terms in simple language.
 
-Supports both Anthropic (Claude) and OpenAI-compatible APIs.
+Supports Vercel AI Gateway, direct Anthropic, or any OpenAI-compatible API.
 Uses Socket Mode for easy local development (no ngrok needed).
 """
 
@@ -9,11 +9,14 @@ import os
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-# AI Provider config - supports Anthropic or OpenAI-compatible APIs
+# AI Provider config
+# Option 1: Vercel AI Gateway (recommended) - set AI_GATEWAY_API_KEY
+# Option 2: Direct Anthropic - set ANTHROPIC_API_KEY
+# Option 3: Any OpenAI-compatible API - set AI_GATEWAY_API_KEY + AI_GATEWAY_BASE_URL
+AI_GATEWAY_API_KEY = os.environ.get("AI_GATEWAY_API_KEY")
+AI_GATEWAY_BASE_URL = os.environ.get("AI_GATEWAY_BASE_URL", "https://ai-gateway.vercel.sh/v1")
+AI_GATEWAY_MODEL = os.environ.get("AI_GATEWAY_MODEL", "anthropic/claude-sonnet-4-20250514")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 # Slack config
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
@@ -40,16 +43,16 @@ Message:
 
 
 def get_explanation(text: str) -> str:
-    """Get an explanation using available AI provider (Anthropic preferred)."""
+    """Get an explanation using available AI provider (Vercel AI Gateway preferred)."""
 
-    if ANTHROPIC_API_KEY:
+    if AI_GATEWAY_API_KEY:
+        return _explain_with_gateway(text)
+    elif ANTHROPIC_API_KEY:
         return _explain_with_anthropic(text)
-    elif OPENAI_API_KEY:
-        return _explain_with_openai(text)
     else:
         return (
             "No AI provider configured. "
-            "Set either `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to enable explanations."
+            "Set `AI_GATEWAY_API_KEY` (for Vercel AI Gateway) or `ANTHROPIC_API_KEY`."
         )
 
 
@@ -71,14 +74,14 @@ def _explain_with_anthropic(text: str) -> str:
     return message.content[0].text
 
 
-def _explain_with_openai(text: str) -> str:
-    """Use OpenAI-compatible API (works with OpenAI, Azure, local models, etc.)."""
+def _explain_with_gateway(text: str) -> str:
+    """Use Vercel AI Gateway or any OpenAI-compatible API."""
     import openai
 
-    client = openai.OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+    client = openai.OpenAI(api_key=AI_GATEWAY_API_KEY, base_url=AI_GATEWAY_BASE_URL)
 
     response = client.chat.completions.create(
-        model=OPENAI_MODEL,
+        model=AI_GATEWAY_MODEL,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": USER_PROMPT.format(text=text)},

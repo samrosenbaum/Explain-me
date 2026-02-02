@@ -6,7 +6,7 @@ A Slack app that explains technical jargon in simple language using AI.
 
 - **Message shortcut** - Right-click any message to get an explanation
 - **Private responses** - Only you see the explanation (ephemeral messages)
-- **Flexible AI** - Works with Anthropic (Claude) or any OpenAI-compatible API
+- **Flexible AI** - Works with Vercel AI Gateway, Anthropic, or any OpenAI-compatible API
 - **Socket Mode** - No public URL needed for local development
 - **Nice formatting** - Uses Slack Block Kit for clean output
 
@@ -89,14 +89,25 @@ Set these in your `.env` file:
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
 
-# AI Provider - set at least one
-ANTHROPIC_API_KEY=sk-ant-...    # Preferred
+# AI Provider - choose one:
 
-# Or use OpenAI-compatible API
-OPENAI_API_KEY=sk-...
-OPENAI_BASE_URL=https://api.openai.com/v1  # Optional, for custom endpoints
-OPENAI_MODEL=gpt-4o-mini                    # Optional
+# Option 1: Vercel AI Gateway (recommended)
+AI_GATEWAY_API_KEY=your-vercel-key
+AI_GATEWAY_MODEL=anthropic/claude-sonnet-4-20250514  # or openai/gpt-4o, etc.
+
+# Option 2: Direct Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+### Vercel AI Gateway Models
+
+Use the `provider/model` format:
+- `anthropic/claude-sonnet-4-20250514`
+- `openai/gpt-4o`
+- `google/gemini-2.0-flash`
+- `xai/grok-3`
+
+Get your API key at [vercel.com/dashboard](https://vercel.com/dashboard) → AI → Gateway
 
 ## Project Structure
 
