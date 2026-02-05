@@ -29,7 +29,18 @@ if not SLACK_BOT_TOKEN or not SLACK_APP_TOKEN:
 
 app = App(token=SLACK_BOT_TOKEN)
 
+# Emoji that triggers DM chat (user reacts with this to start a conversation)
+CHAT_TRIGGER_EMOJI = "speech_balloon"  # 💬
+
 SYSTEM_PROMPT = "You explain technical jargon in simple, friendly terms. Be concise."
+
+CHAT_SYSTEM_PROMPT = """You are a friendly technical explainer helping someone understand jargon and technical concepts.
+
+- Explain things in simple, plain English
+- Be conversational and helpful
+- If they ask follow-up questions, build on what you've already explained
+- Keep responses concise but thorough
+- If you're not sure what they're asking about, ask for clarification"""
 
 USER_PROMPT = """Explain the following message for someone who isn't familiar with the technical terms.
 
@@ -90,6 +101,31 @@ def _explain_with_gateway(text: str) -> str:
     )
 
     return response.choices[0].message.content.strip()
+
+
+def chat_response(messages: list) -> str:
+    """Generate a conversational response given message history."""
+    if AI_GATEWAY_API_KEY:
+        import openai
+        client = openai.OpenAI(api_key=AI_GATEWAY_API_KEY, base_url=AI_GATEWAY_BASE_URL)
+        response = client.chat.completions.create(
+            model=AI_GATEWAY_MODEL,
+            messages=[{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + messages,
+            temperature=0.4,
+        )
+        return response.choices[0].message.content.strip()
+    elif ANTHROPIC_API_KEY:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            system=CHAT_SYSTEM_PROMPT,
+            messages=messages
+        )
+        return message.content[0].text
+    else:
+        return "No AI provider configured."
 
 
 def format_explanation_blocks(original_text: str, explanation: str) -> list:
@@ -211,6 +247,102 @@ def handle_explain_jargon_public(ack, shortcut, client, logger):
         )
 
 
+@app.event("reaction_added")
+def handle_reaction(event, client, logger):
+    """When user reacts with 💬, start a DM conversation about that message."""
+    if event.get("reaction") != CHAT_TRIGGER_EMOJI:
+        return
+
+    user_id = event.get("user")
+    item = event.get("item", {})
+    channel_id = item.get("channel")
+    message_ts = item.get("ts")
+
+    if not all([user_id, channel_id, message_ts]):
+        return
+
+    try:
+        # Fetch the message they reacted to
+        result = client.conversations_history(
+            channel=channel_id,
+            latest=message_ts,
+            limit=1,
+            inclusive=True
+        )
+        messages = result.get("messages", [])
+        if not messages:
+            return
+
+        original_text = messages[0].get("text", "")
+        if not original_text:
+            return
+
+        # Open a DM with the user
+        dm = client.conversations_open(users=[user_id])
+        dm_channel = dm["channel"]["id"]
+
+        # Send initial message with context
+        client.chat_postMessage(
+            channel=dm_channel,
+            text=(
+                f"Hey! I saw you wanted to chat about this message:\n\n"
+                f">{original_text[:500]}{'...' if len(original_text) > 500 else ''}\n\n"
+                f"What would you like me to explain? Ask me anything!"
+            )
+        )
+    except Exception as e:
+        logger.exception(f"Failed to start DM conversation: {e}")
+
+
+@app.event("message")
+def handle_dm_message(event, client, logger):
+    """Handle direct messages - have a conversation with the user."""
+    # Only respond to DMs (not channels)
+    if event.get("channel_type") != "im":
+        return
+
+    # Ignore bot messages (including our own)
+    if event.get("bot_id") or event.get("subtype"):
+        return
+
+    user_id = event.get("user")
+    channel_id = event.get("channel")
+    user_message = event.get("text", "").strip()
+
+    if not user_message:
+        return
+
+    try:
+        # Fetch recent conversation history for context
+        result = client.conversations_history(channel=channel_id, limit=10)
+        history = result.get("messages", [])
+
+        # Build message list for AI (reverse to chronological order)
+        messages = []
+        for msg in reversed(history[1:]):  # Skip the current message, it's already in user_message
+            if msg.get("bot_id"):
+                messages.append({"role": "assistant", "content": msg.get("text", "")})
+            elif not msg.get("subtype"):
+                messages.append({"role": "user", "content": msg.get("text", "")})
+
+        # Add current message
+        messages.append({"role": "user", "content": user_message})
+
+        # Generate response
+        response = chat_response(messages)
+
+        client.chat_postMessage(
+            channel=channel_id,
+            text=response
+        )
+    except Exception as e:
+        logger.exception(f"Failed to respond to DM: {e}")
+        client.chat_postMessage(
+            channel=channel_id,
+            text="Sorry, I had trouble processing that. Could you try again?"
+        )
+
+
 @app.event("app_home_opened")
 def handle_app_home(client, event, logger):
     """Show helpful info when user opens the App Home tab."""
@@ -243,6 +375,17 @@ def handle_app_home(client, event, logger):
                                 "3. Choose an option:\n"
                                 "   • *Explain Jargon* → private (only you see it)\n"
                                 "   • *Explain Jargon (Public)* → posts to the channel"
+                            )
+                        }
+                    },
+                    {"type": "divider"},
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": (
+                                "*Want to chat about it?*\n"
+                                "React to any message with 💬 and I'll DM you so we can discuss it!"
                             )
                         }
                     }
