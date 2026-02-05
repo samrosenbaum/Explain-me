@@ -115,7 +115,7 @@ def format_explanation_blocks(original_text: str, explanation: str) -> list:
 
 @app.shortcut("explain_jargon")
 def handle_explain_jargon(ack, shortcut, client, logger):
-    """Handle the 'Explain Jargon' message shortcut."""
+    """Handle the 'Explain Jargon' message shortcut (private/ephemeral)."""
     ack()
 
     message = shortcut.get("message", {})
@@ -161,6 +161,56 @@ def handle_explain_jargon(ack, shortcut, client, logger):
         )
 
 
+@app.shortcut("explain_jargon_public")
+def handle_explain_jargon_public(ack, shortcut, client, logger):
+    """Handle the 'Explain Jargon (Public)' message shortcut - posts to channel."""
+    ack()
+
+    message = shortcut.get("message", {})
+    text = message.get("text", "").strip()
+    channel_id = shortcut.get("channel", {}).get("id")
+    user_id = shortcut.get("user", {}).get("id")
+    message_ts = message.get("ts")
+
+    if not channel_id or not user_id:
+        logger.error("Missing channel_id or user_id in shortcut payload")
+        return
+
+    if not text:
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="I couldn't find any text to explain in that message."
+        )
+        return
+
+    # Send a loading message (ephemeral - only requester sees this)
+    client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        text=":hourglass_flowing_sand: Generating explanation for everyone..."
+    )
+
+    try:
+        explanation = get_explanation(text)
+        blocks = format_explanation_blocks(text, explanation)
+
+        # Post publicly to the channel (as a thread reply if possible)
+        client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=message_ts,  # Reply in thread to the original message
+            text=explanation,  # Fallback for notifications
+            blocks=blocks
+        )
+    except Exception as e:
+        logger.exception(f"Failed to generate explanation: {e}")
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="Sorry, I had trouble generating an explanation. Please try again."
+        )
+
+
 @app.event("app_home_opened")
 def handle_app_home(client, event, logger):
     """Show helpful info when user opens the App Home tab."""
@@ -190,19 +240,11 @@ def handle_app_home(client, event, logger):
                                 "*How to use:*\n"
                                 "1. Find a message with confusing technical terms\n"
                                 "2. Click the *three dots menu* (more actions) on the message\n"
-                                "3. Select *Explain Jargon*\n"
-                                "4. I'll send you a private explanation!"
+                                "3. Choose an option:\n"
+                                "   • *Explain Jargon* → private (only you see it)\n"
+                                "   • *Explain Jargon (Public)* → posts to the channel"
                             )
                         }
-                    },
-                    {
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "mrkdwn",
-                                "text": "_Explanations are only visible to you._"
-                            }
-                        ]
                     }
                 ]
             }
