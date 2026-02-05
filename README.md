@@ -1,43 +1,135 @@
-# Explain-me Slack App
+# Slack Jargon Explainer
 
-A Slack app that lets you highlight a message and get a plain-English explanation of technical jargon.
+A Slack app that explains technical jargon in simple language using AI.
 
-## How it works
-- Adds a **message shortcut** called **Explain jargon**.
-- When you invoke it on a message, the app sends the message text to the OpenAI API and responds with a short, simple explanation.
-- The response is posted as an ephemeral message so only you can see it.
+## Features
 
-## Setup
-1. **Create a Slack app** at https://api.slack.com/apps.
-2. **Enable Interactivity** and set the Request URL to `https://<your-domain>/slack/events`.
-3. **Create a message shortcut** named “Explain jargon” with callback ID `explain_jargon`.
-4. **Add OAuth scopes**:
-   - `commands`
+- **Message shortcut** - Right-click any message to get an explanation
+- **Private responses** - Only you see the explanation (ephemeral messages)
+- **Flexible AI** - Works with Vercel AI Gateway, Anthropic, or any OpenAI-compatible API
+- **Socket Mode** - No public URL needed for local development
+- **Nice formatting** - Uses Slack Block Kit for clean output
+
+## How It Works
+
+1. See a message with confusing technical jargon
+2. Click the three dots menu on the message
+3. Select "Explain Jargon"
+4. Get a private explanation in simple terms
+
+## Quick Start
+
+### 1. Create a Slack App
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps)
+2. Click **Create New App** > **From scratch**
+3. Name it "Jargon Explainer" and select your workspace
+
+### 2. Configure the App
+
+**Enable Socket Mode:**
+1. Go to **Socket Mode** in sidebar
+2. Toggle **Enable Socket Mode** ON
+3. Create an app-level token with `connections:write` scope
+4. Save the token (starts with `xapp-`)
+
+**Add Bot Scopes:**
+1. Go to **OAuth & Permissions**
+2. Under **Bot Token Scopes**, add:
    - `chat:write`
-   - `chat:write.public` (optional)
-   - `groups:read` (optional)
-   - `channels:read` (optional)
-5. **Install the app** to your workspace and copy the bot token.
 
-## Local development
+**Create the Message Shortcut:**
+1. Go to **Interactivity & Shortcuts**
+2. Toggle **Interactivity** ON
+3. Click **Create New Shortcut** > **On messages**
+4. Set:
+   - Name: `Explain Jargon`
+   - Description: `Explain technical terms in this message`
+   - Callback ID: `explain_jargon`
+
+**Enable App Home (optional):**
+1. Go to **App Home**
+2. Toggle **Home Tab** ON
+
+**Install to Workspace:**
+1. Go to **Install App**
+2. Click **Install to Workspace**
+3. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+
+### 3. Run the App
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+# Clone and enter directory
+git clone <repo-url>
+cd Explain-me
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
-cp .env.example .env
-```
 
-Populate `.env` with your Slack and OpenAI credentials, then run:
-```bash
-export $(cat .env | xargs)
+# Configure environment
+cp .env.example .env
+# Edit .env with your tokens
+
+# Run
 python app.py
 ```
 
-## Deployment notes
-- Run behind a public HTTPS URL (e.g., via ngrok, Cloud Run, or a load balancer).
-- Set the Slack Request URL to `https://<host>/slack/events`.
-- Optionally set `OPENAI_MODEL` to any model available to your API key.
+You should see: `Starting Jargon Explainer...`
 
-## Security
-- Keep `SLACK_SIGNING_SECRET` and API keys in secure storage.
-- Limit the app to internal workspaces only.
+## Configuration
+
+Set these in your `.env` file:
+
+```bash
+# Required - Slack credentials
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+
+# AI Provider - choose one:
+
+# Option 1: Vercel AI Gateway (recommended)
+AI_GATEWAY_API_KEY=your-vercel-key
+AI_GATEWAY_MODEL=anthropic/claude-sonnet-4-20250514  # or openai/gpt-4o, etc.
+
+# Option 2: Direct Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Vercel AI Gateway Models
+
+Use the `provider/model` format:
+- `anthropic/claude-sonnet-4-20250514`
+- `openai/gpt-4o`
+- `google/gemini-2.0-flash`
+- `xai/grok-3`
+
+Get your API key at [vercel.com/dashboard](https://vercel.com/dashboard) → AI → Gateway
+
+## Project Structure
+
+```
+.
+├── app.py              # Main application (single file)
+├── requirements.txt    # Python dependencies
+├── .env.example        # Environment template
+└── README.md
+```
+
+## Deployment
+
+For production, you can deploy to any Python-friendly platform:
+
+- **Railway** / **Render** - Easy Python deployment
+- **Heroku** - Add a `Procfile`: `web: python app.py`
+- **Docker** - Containerize with a simple Dockerfile
+- **Any VPS** - Just run `python app.py` with a process manager
+
+Remember to set environment variables in your hosting platform.
+
+## License
+
+MIT
