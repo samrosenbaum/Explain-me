@@ -1,14 +1,6 @@
 {
-  "builds": [
-    {
-      "src": "api/slack.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/slack",
-      "dest": "/api/slack.py"
-    }
+  "rewrites": [
+    { "source": "/api/slack/events", "destination": "/api/index.py" },
+    { "source": "/api/health", "destination": "/api/index.py" }
   ]
 }

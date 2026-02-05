@@ -1,34 +1,39 @@
 """
-Slack Jargon Explainer - Vercel Serverless Function
+Slack Jargon Explainer - Explains technical terms in simple language.
 
-Handles Slack events via HTTP (no Socket Mode needed).
-Deploy to Vercel and set your Request URL to: https://your-app.vercel.app/api/slack
+Supports Vercel AI Gateway, direct Anthropic, or any OpenAI-compatible API.
 """
 
 import os
 from slack_bolt import App
-from slack_bolt.adapter.starlette import SlackRequestHandler
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.routing import Route
 
 # AI Provider config
+# Option 1: Vercel AI Gateway (recommended) - set AI_GATEWAY_API_KEY
+# Option 2: Direct Anthropic - set ANTHROPIC_API_KEY
+# Option 3: Any OpenAI-compatible API - set AI_GATEWAY_API_KEY + AI_GATEWAY_BASE_URL
 AI_GATEWAY_API_KEY = os.environ.get("AI_GATEWAY_API_KEY")
-AI_GATEWAY_BASE_URL = os.environ.get("AI_GATEWAY_BASE_URL", "https://ai-gateway.vercel.sh/v1")
-AI_GATEWAY_MODEL = os.environ.get("AI_GATEWAY_MODEL", "anthropic/claude-sonnet-4-20250514")
+AI_GATEWAY_BASE_URL = os.environ.get(
+    "AI_GATEWAY_BASE_URL", "https://ai-gateway.vercel.sh/v1"
+)
+AI_GATEWAY_MODEL = os.environ.get(
+    "AI_GATEWAY_MODEL", "anthropic/claude-sonnet-4-20250514"
+)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 # Slack config
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET")
+SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")
 
-app = App(
-    token=SLACK_BOT_TOKEN,
-    signing_secret=SLACK_SIGNING_SECRET,
-)
+if not SLACK_BOT_TOKEN or not SLACK_SIGNING_SECRET:
+    raise RuntimeError(
+        "Missing Slack credentials. Set SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET."
+    )
 
-# Emoji that triggers DM chat
-CHAT_TRIGGER_EMOJI = "speech_balloon"
+app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
+
+# Emoji that triggers DM chat (user reacts with this to start a conversation)
+CHAT_TRIGGER_EMOJI = "speech_balloon"  # 💬
 
 SYSTEM_PROMPT = "You explain technical jargon in simple, friendly terms. Be concise."
 
@@ -52,32 +57,40 @@ Message:
 
 
 def get_explanation(text: str) -> str:
-    """Get an explanation using available AI provider."""
+    """Get an explanation using available AI provider (Vercel AI Gateway preferred)."""
+
     if AI_GATEWAY_API_KEY:
         return _explain_with_gateway(text)
-    elif ANTHROPIC_API_KEY:
+    if ANTHROPIC_API_KEY:
         return _explain_with_anthropic(text)
-    else:
-        return "No AI provider configured. Set `AI_GATEWAY_API_KEY` or `ANTHROPIC_API_KEY`."
+    return (
+        "No AI provider configured. "
+        "Set `AI_GATEWAY_API_KEY` (for Vercel AI Gateway) or `ANTHROPIC_API_KEY`."
+    )
 
 
 def _explain_with_anthropic(text: str) -> str:
     """Use Anthropic's Claude API."""
     import anthropic
+
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
     message = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=1024,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": USER_PROMPT.format(text=text)}]
+        messages=[{"role": "user", "content": USER_PROMPT.format(text=text)}],
     )
+
     return message.content[0].text
 
 
 def _explain_with_gateway(text: str) -> str:
     """Use Vercel AI Gateway or any OpenAI-compatible API."""
     import openai
+
     client = openai.OpenAI(api_key=AI_GATEWAY_API_KEY, base_url=AI_GATEWAY_BASE_URL)
+
     response = client.chat.completions.create(
         model=AI_GATEWAY_MODEL,
         messages=[
@@ -86,6 +99,7 @@ def _explain_with_gateway(text: str) -> str:
         ],
         temperature=0.3,
     )
+
     return response.choices[0].message.content.strip()
 
 
@@ -93,6 +107,7 @@ def chat_response(messages: list) -> str:
     """Generate a conversational response given message history."""
     if AI_GATEWAY_API_KEY:
         import openai
+
         client = openai.OpenAI(api_key=AI_GATEWAY_API_KEY, base_url=AI_GATEWAY_BASE_URL)
         response = client.chat.completions.create(
             model=AI_GATEWAY_MODEL,
@@ -100,38 +115,33 @@ def chat_response(messages: list) -> str:
             temperature=0.4,
         )
         return response.choices[0].message.content.strip()
-    elif ANTHROPIC_API_KEY:
+    if ANTHROPIC_API_KEY:
         import anthropic
+
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
             system=CHAT_SYSTEM_PROMPT,
-            messages=messages
+            messages=messages,
         )
         return message.content[0].text
-    else:
-        return "No AI provider configured."
+    return "No AI provider configured."
 
 
 def format_explanation_blocks(original_text: str, explanation: str) -> list:
-    """Format the explanation using Slack Block Kit."""
+    """Format the explanation nicely using Slack Block Kit."""
+    preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
     return [
         {
             "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Original message:*\n>{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
-            }
+            "text": {"type": "mrkdwn", "text": f"*Original message:*\n>{preview}"},
         },
         {"type": "divider"},
         {
             "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Explanation:*\n{explanation}"
-            }
-        }
+            "text": {"type": "mrkdwn", "text": f"*Explanation:*\n{explanation}"},
+        },
     ]
 
 
@@ -153,31 +163,28 @@ def handle_explain_jargon(ack, shortcut, client, logger):
         client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text="I couldn't find any text to explain in that message."
+            text="I couldn't find any text to explain in that message.",
         )
         return
 
+    # Send a loading message
     client.chat_postEphemeral(
-        channel=channel_id,
-        user=user_id,
-        text=":hourglass_flowing_sand: Thinking..."
+        channel=channel_id, user=user_id, text=":hourglass_flowing_sand: Thinking..."
     )
 
     try:
         explanation = get_explanation(text)
         blocks = format_explanation_blocks(text, explanation)
+
         client.chat_postEphemeral(
-            channel=channel_id,
-            user=user_id,
-            text=explanation,
-            blocks=blocks
+            channel=channel_id, user=user_id, text=explanation, blocks=blocks
         )
-    except Exception as e:
-        logger.exception(f"Failed to generate explanation: {e}")
+    except Exception as exc:
+        logger.exception(f"Failed to generate explanation: {exc}")
         client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text="Sorry, I had trouble generating an explanation. Please try again."
+            text="Sorry, I had trouble generating an explanation. Please try again.",
         )
 
 
@@ -200,31 +207,34 @@ def handle_explain_jargon_public(ack, shortcut, client, logger):
         client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text="I couldn't find any text to explain in that message."
+            text="I couldn't find any text to explain in that message.",
         )
         return
 
+    # Send a loading message (ephemeral - only requester sees this)
     client.chat_postEphemeral(
         channel=channel_id,
         user=user_id,
-        text=":hourglass_flowing_sand: Generating explanation for everyone..."
+        text=":hourglass_flowing_sand: Generating explanation for everyone...",
     )
 
     try:
         explanation = get_explanation(text)
         blocks = format_explanation_blocks(text, explanation)
+
+        # Post publicly to the channel (as a thread reply if possible)
         client.chat_postMessage(
             channel=channel_id,
             thread_ts=message_ts,
             text=explanation,
-            blocks=blocks
+            blocks=blocks,
         )
-    except Exception as e:
-        logger.exception(f"Failed to generate explanation: {e}")
+    except Exception as exc:
+        logger.exception(f"Failed to generate explanation: {exc}")
         client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text="Sorry, I had trouble generating an explanation. Please try again."
+            text="Sorry, I had trouble generating an explanation. Please try again.",
         )
 
 
@@ -244,10 +254,7 @@ def handle_reaction(event, client, logger):
 
     try:
         result = client.conversations_history(
-            channel=channel_id,
-            latest=message_ts,
-            limit=1,
-            inclusive=True
+            channel=channel_id, latest=message_ts, limit=1, inclusive=True
         )
         messages = result.get("messages", [])
         if not messages:
@@ -263,13 +270,13 @@ def handle_reaction(event, client, logger):
         client.chat_postMessage(
             channel=dm_channel,
             text=(
-                f"Hey! I saw you wanted to chat about this message:\n\n"
+                "Hey! I saw you wanted to chat about this message:\n\n"
                 f">{original_text[:500]}{'...' if len(original_text) > 500 else ''}\n\n"
-                f"What would you like me to explain? Ask me anything!"
-            )
+                "What would you like me to explain? Ask me anything!"
+            ),
         )
-    except Exception as e:
-        logger.exception(f"Failed to start DM conversation: {e}")
+    except Exception as exc:
+        logger.exception(f"Failed to start DM conversation: {exc}")
 
 
 @app.event("message")
@@ -281,7 +288,6 @@ def handle_dm_message(event, client, logger):
     if event.get("bot_id") or event.get("subtype"):
         return
 
-    user_id = event.get("user")
     channel_id = event.get("channel")
     user_message = event.get("text", "").strip()
 
@@ -300,14 +306,15 @@ def handle_dm_message(event, client, logger):
                 messages.append({"role": "user", "content": msg.get("text", "")})
 
         messages.append({"role": "user", "content": user_message})
+
         response = chat_response(messages)
 
         client.chat_postMessage(channel=channel_id, text=response)
-    except Exception as e:
-        logger.exception(f"Failed to respond to DM: {e}")
+    except Exception as exc:
+        logger.exception(f"Failed to respond to DM: {exc}")
         client.chat_postMessage(
             channel=channel_id,
-            text="Sorry, I had trouble processing that. Could you try again?"
+            text="Sorry, I had trouble processing that. Could you try again?",
         )
 
 
@@ -322,14 +329,17 @@ def handle_app_home(client, event, logger):
                 "blocks": [
                     {
                         "type": "header",
-                        "text": {"type": "plain_text", "text": "Jargon Explainer"}
+                        "text": {"type": "plain_text", "text": "Jargon Explainer"},
                     },
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": "I help you understand technical jargon and acronyms in simple terms."
-                        }
+                            "text": (
+                                "I help you understand technical jargon and acronyms "
+                                "in simple terms."
+                            ),
+                        },
                     },
                     {"type": "divider"},
                     {
@@ -339,12 +349,13 @@ def handle_app_home(client, event, logger):
                             "text": (
                                 "*How to use:*\n"
                                 "1. Find a message with confusing technical terms\n"
-                                "2. Click the *three dots menu* (more actions) on the message\n"
+                                "2. Click the *three dots menu* (more actions) "
+                                "on the message\n"
                                 "3. Choose an option:\n"
                                 "   • *Explain Jargon* → private (only you see it)\n"
                                 "   • *Explain Jargon (Public)* → posts to the channel"
-                            )
-                        }
+                            ),
+                        },
                     },
                     {"type": "divider"},
                     {
@@ -353,28 +364,13 @@ def handle_app_home(client, event, logger):
                             "type": "mrkdwn",
                             "text": (
                                 "*Want to chat about it?*\n"
-                                "React to any message with 💬 and I'll DM you so we can discuss it!"
-                            )
-                        }
-                    }
-                ]
-            }
+                                "React to any message with 💬 and I'll DM you "
+                                "so we can discuss it!"
+                            ),
+                        },
+                    },
+                ],
+            },
         )
-    except Exception as e:
-        logger.error(f"Error publishing home view: {e}")
-
-
-# Starlette app for Vercel
-handler = SlackRequestHandler(app)
-
-
-async def slack_events(request: Request):
-    return await handler.handle(request)
-
-
-starlette_app = Starlette(
-    routes=[Route("/api/slack", endpoint=slack_events, methods=["POST"])]
-)
-
-# Vercel entry point
-app = starlette_app
+    except Exception as exc:
+        logger.error(f"Error publishing home view: {exc}")

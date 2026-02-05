@@ -30,10 +30,11 @@ A Slack app that explains technical jargon in simple language using AI. Deploys 
 1. Go to **OAuth & Permissions**
 2. Under **Bot Token Scopes**, add:
    - `chat:write`
-   - `channels:history` (for reading messages to explain)
-   - `im:history` (for DM chat feature)
-   - `im:write` (for DM chat feature)
-   - `reactions:read` (for 💬 trigger)
+   - `channels:history`
+   - `groups:history`
+   - `im:history`
+   - `mpim:history`
+   - `reactions:read`
 
 **Create Message Shortcuts:**
 1. Go to **Interactivity & Shortcuts**
@@ -60,11 +61,8 @@ A Slack app that explains technical jargon in simple language using AI. Deploys 
 ### 3. Deploy to Vercel
 
 ```bash
-# Clone the repo
 git clone <repo-url>
 cd Explain-me
-
-# Deploy
 vercel
 ```
 
@@ -82,12 +80,12 @@ After deploying, copy your Vercel URL and update these in your Slack app:
 
 1. **Interactivity & Shortcuts** → Request URL:
    ```
-   https://your-app.vercel.app/api/slack
+   https://your-app.vercel.app/api/slack/events
    ```
 
 2. **Event Subscriptions** → Request URL:
    ```
-   https://your-app.vercel.app/api/slack
+   https://your-app.vercel.app/api/slack/events
    ```
 
 3. **Reinstall the app** to your workspace (Install App → Reinstall)
@@ -110,16 +108,16 @@ After deploying, copy your Vercel URL and update these in your Slack app:
 
 ## Local Development
 
-For local testing, you can use Socket Mode (keeps the original `app.py`):
+For local testing with Socket Mode:
 
 ```bash
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Set environment variables
 export SLACK_BOT_TOKEN=xoxb-...
-export SLACK_APP_TOKEN=xapp-...  # Socket Mode uses app token instead of signing secret
+export SLACK_SIGNING_SECRET=...
+export SLACK_APP_TOKEN=xapp-...  # Socket Mode only
 export AI_GATEWAY_API_KEY=...
 
 python app.py
@@ -130,8 +128,9 @@ python app.py
 ```
 .
 ├── api/
-│   └── slack.py        # Vercel serverless function
-├── app.py              # Local development (Socket Mode)
+│   └── index.py        # Vercel serverless function
+├── slack_app.py        # Core app logic (shared)
+├── app.py              # Socket Mode runner (local dev)
 ├── vercel.json         # Vercel configuration
 ├── requirements.txt    # Python dependencies
 └── .env.example        # Environment template
