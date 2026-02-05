@@ -1,23 +1,22 @@
 # Slack Jargon Explainer
 
-A Slack app that explains technical jargon in simple language using AI.
+A Slack app that explains technical jargon in simple language using AI. Deploys to Vercel.
 
 ## Features
 
 - **Message shortcut** - Right-click any message to get an explanation
-- **Private responses** - Only you see the explanation (ephemeral messages)
-- **Flexible AI** - Works with Vercel AI Gateway, Anthropic, or any OpenAI-compatible API
-- **Socket Mode** - No public URL needed for local development
-- **Nice formatting** - Uses Slack Block Kit for clean output
+- **Private or public** - Get explanations just for you, or share with the channel
+- **Chat mode** - React with 💬 to start a DM conversation about any message
+- **Vercel AI Gateway** - Uses your existing AI Gateway setup
 
 ## How It Works
 
 1. See a message with confusing technical jargon
 2. Click the three dots menu on the message
-3. Select "Explain Jargon"
-4. Get a private explanation in simple terms
+3. Select "Explain Jargon" (private) or "Explain Jargon (Public)"
+4. Get an explanation in simple terms
 
-## Quick Start
+## Deploy to Vercel
 
 ### 1. Create a Slack App
 
@@ -25,128 +24,118 @@ A Slack app that explains technical jargon in simple language using AI.
 2. Click **Create New App** > **From scratch**
 3. Name it "Jargon Explainer" and select your workspace
 
-### 2. Configure the App
-
-**Enable Socket Mode:**
-1. Go to **Socket Mode** in sidebar
-2. Toggle **Enable Socket Mode** ON
-3. Create an app-level token with `connections:write` scope
-4. Save the token (starts with `xapp-`)
+### 2. Configure the Slack App
 
 **Add Bot Scopes:**
 1. Go to **OAuth & Permissions**
 2. Under **Bot Token Scopes**, add:
    - `chat:write`
+   - `channels:history` (for reading messages to explain)
+   - `im:history` (for DM chat feature)
+   - `im:write` (for DM chat feature)
+   - `reactions:read` (for 💬 trigger)
 
-**Create the Message Shortcut:**
+**Create Message Shortcuts:**
 1. Go to **Interactivity & Shortcuts**
 2. Toggle **Interactivity** ON
-3. Click **Create New Shortcut** > **On messages**
-4. Set:
-   - Name: `Explain Jargon`
-   - Description: `Explain technical terms in this message`
-   - Callback ID: `explain_jargon`
+3. Create two shortcuts (both **On messages**):
 
-**Enable App Home (optional):**
-1. Go to **App Home**
-2. Toggle **Home Tab** ON
+   | Name | Callback ID |
+   |------|-------------|
+   | Explain Jargon | `explain_jargon` |
+   | Explain Jargon (Public) | `explain_jargon_public` |
 
-**Install to Workspace:**
-1. Go to **Install App**
-2. Click **Install to Workspace**
-3. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+**Subscribe to Events:**
+1. Go to **Event Subscriptions**
+2. Toggle **Enable Events** ON
+3. Under **Subscribe to bot events**, add:
+   - `message.im`
+   - `reaction_added`
+   - `app_home_opened`
 
-### 3. Run the App
+**Get your credentials:**
+- **Bot Token**: OAuth & Permissions → Bot User OAuth Token (`xoxb-...`)
+- **Signing Secret**: Basic Information → App Credentials → Signing Secret
+
+### 3. Deploy to Vercel
 
 ```bash
-# Clone and enter directory
+# Clone the repo
 git clone <repo-url>
 cd Explain-me
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your tokens
-
-# Run
-python app.py
+# Deploy
+vercel
 ```
 
-You should see: `Starting Jargon Explainer...`
+Add these environment variables in your Vercel project settings:
 
-## Configuration
+| Variable | Value |
+|----------|-------|
+| `SLACK_BOT_TOKEN` | `xoxb-...` from OAuth & Permissions |
+| `SLACK_SIGNING_SECRET` | From Basic Information → App Credentials |
+| `AI_GATEWAY_API_KEY` | Your Vercel AI Gateway key |
 
-Set these in your `.env` file:
+### 4. Connect Slack to Vercel
 
-```bash
-# Required - Slack credentials
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_APP_TOKEN=xapp-...
+After deploying, copy your Vercel URL and update these in your Slack app:
 
-# AI Provider - choose one:
+1. **Interactivity & Shortcuts** → Request URL:
+   ```
+   https://your-app.vercel.app/api/slack
+   ```
 
-# Option 1: Vercel AI Gateway (recommended)
-AI_GATEWAY_API_KEY=your-vercel-key
-AI_GATEWAY_MODEL=anthropic/claude-sonnet-4-20250514  # or openai/gpt-4o, etc.
+2. **Event Subscriptions** → Request URL:
+   ```
+   https://your-app.vercel.app/api/slack
+   ```
 
-# Option 2: Direct Anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-```
+3. **Reinstall the app** to your workspace (Install App → Reinstall)
 
-### Vercel AI Gateway Models
+## Environment Variables
 
-Use the `provider/model` format:
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SLACK_BOT_TOKEN` | Yes | Bot token from OAuth & Permissions |
+| `SLACK_SIGNING_SECRET` | Yes | From Basic Information → App Credentials |
+| `AI_GATEWAY_API_KEY` | Yes | Vercel AI Gateway API key |
+| `AI_GATEWAY_MODEL` | No | Model to use (default: `anthropic/claude-sonnet-4-20250514`) |
+
+### Available Models
+
 - `anthropic/claude-sonnet-4-20250514`
 - `openai/gpt-4o`
+- `openai/gpt-4o-mini`
 - `google/gemini-2.0-flash`
-- `xai/grok-3`
 
-Get your API key at [vercel.com/dashboard](https://vercel.com/dashboard) → AI → Gateway
+## Local Development
+
+For local testing, you can use Socket Mode (keeps the original `app.py`):
+
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Set environment variables
+export SLACK_BOT_TOKEN=xoxb-...
+export SLACK_APP_TOKEN=xapp-...  # Socket Mode uses app token instead of signing secret
+export AI_GATEWAY_API_KEY=...
+
+python app.py
+```
 
 ## Project Structure
 
 ```
 .
-├── app.py              # Main application (single file)
+├── api/
+│   └── slack.py        # Vercel serverless function
+├── app.py              # Local development (Socket Mode)
+├── vercel.json         # Vercel configuration
 ├── requirements.txt    # Python dependencies
-├── .env.example        # Environment template
-└── README.md
+└── .env.example        # Environment template
 ```
-
-## For Your Org
-
-**Good news:** Once the app is running, **everyone in your Slack workspace can use it** - they don't need their own tokens or setup.
-
-Here's how it works:
-- **You (the admin)** set up and run the bot with the tokens in `.env`
-- **Your teammates** just use the Slack shortcuts - no config needed on their end
-- The Slack tokens authenticate the *bot*, not individual users
-
-**For other developers** who want to run their own instance or contribute:
-1. Clone the repo
-2. Copy `.env.example` to `.env`
-3. Get their own Slack app tokens (see setup above)
-4. Fill in their `.env` file
-5. Run `python app.py`
-
-The `.env` file is gitignored, so tokens stay local and never get committed.
-
-## Deployment
-
-For production, you can deploy to any Python-friendly platform:
-
-- **Railway** / **Render** - Easy Python deployment
-- **Heroku** - Add a `Procfile`: `web: python app.py`
-- **Docker** - Containerize with a simple Dockerfile
-- **Any VPS** - Just run `python app.py` with a process manager
-
-Remember to set environment variables in your hosting platform.
 
 ## License
 
