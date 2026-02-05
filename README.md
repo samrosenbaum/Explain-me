@@ -119,6 +119,24 @@ Get your API key at [vercel.com/dashboard](https://vercel.com/dashboard) → AI 
 └── README.md
 ```
 
+## For Your Org
+
+**Good news:** Once the app is running, **everyone in your Slack workspace can use it** - they don't need their own tokens or setup.
+
+Here's how it works:
+- **You (the admin)** set up and run the bot with the tokens in `.env`
+- **Your teammates** just use the Slack shortcuts - no config needed on their end
+- The Slack tokens authenticate the *bot*, not individual users
+
+**For other developers** who want to run their own instance or contribute:
+1. Clone the repo
+2. Copy `.env.example` to `.env`
+3. Get their own Slack app tokens (see setup above)
+4. Fill in their `.env` file
+5. Run `python app.py`
+
+The `.env` file is gitignored, so tokens stay local and never get committed.
+
 ## Deployment
 
 For production, you can deploy to any Python-friendly platform:
