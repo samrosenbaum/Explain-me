@@ -77,17 +77,17 @@ USER_PROMPT = """Explain the following message for someone who isn't familiar wi
 
 Structure your response with these sections (use the exact headers with bold markdown):
 
+*TLDR*
+A one or two sentence version that a 5-year-old could understand.
+
+*Here's What It Means*
+Rewrite the message in plain English so anyone can understand it.
+
 *Technical Terms*
 List the technical terms used and briefly define each one.
 
 *Abbreviations*
 List any abbreviations or acronyms and what they stand for. If there are none, skip this section entirely.
-
-*Here's What It Means*
-Rewrite the message in plain English so anyone can understand it.
-
-*Put Even Simpler*
-A one or two sentence version that a 5-year-old could understand.
 
 Message:
 {text}"""
@@ -287,8 +287,8 @@ def chat_response(messages: list) -> str:
 def split_explanation_blocks(explanation: str) -> list:
     """Split explanation into Slack blocks, respecting the 3000-char limit per block."""
     blocks = []
-    # Split on section headers like *Technical Terms*, *Abbreviations*, etc.
-    sections = re.split(r"(?=\*(?:Technical Terms|Abbreviations|Here's What It Means|Put Even Simpler)\*)", explanation)
+    # Split on section headers like *TLDR*, *Technical Terms*, *Abbreviations*, etc.
+    sections = re.split(r"(?=\*(?:TLDR|Technical Terms|Abbreviations|Here's What It Means)\*)", explanation)
     for section in sections:
         section = section.strip()
         if not section:
@@ -361,8 +361,6 @@ def open_loading_modal(client, trigger_id):
 
 def update_modal_with_explanation(client, view_id, original_text: str, explanation: str):
     """Update an existing modal with the explanation."""
-    import json as _json
-
     preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
     blocks = [
         {
@@ -372,19 +370,23 @@ def update_modal_with_explanation(client, view_id, original_text: str, explanati
         {"type": "divider"},
     ]
     blocks.extend(split_explanation_blocks(explanation))
-
-    # Store original text in private_metadata so the submit handler can access it
-    metadata = _json.dumps({"original_text": original_text[:2000]})
+    blocks.append({"type": "divider"})
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": "Want to dig deeper? Just DM me and ask follow-up questions!",
+            }
+        ],
+    })
 
     client.views_update(
         view_id=view_id,
         view={
             "type": "modal",
-            "callback_id": "chat_about_this",
             "title": {"type": "plain_text", "text": "ELI5 at your service"},
-            "submit": {"type": "plain_text", "text": "Chat about this"},
             "close": {"type": "plain_text", "text": "Close"},
-            "private_metadata": metadata,
             "blocks": blocks,
         },
     )
