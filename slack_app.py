@@ -41,8 +41,8 @@ if not SLACK_BOT_TOKEN or not SLACK_SIGNING_SECRET:
 
 app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
 
-# Emoji that triggers DM chat (user reacts with this to start a conversation)
-CHAT_TRIGGER_EMOJI = "speech_balloon"  # 💬
+# Emojis that trigger DM chat (user reacts with any of these to start a conversation)
+CHAT_TRIGGER_EMOJIS = {"speech_balloon", "eli5"}  # 💬 or custom :eli5: emoji
 
 SYSTEM_PROMPT = """You are ELI5, a friendly explainer bot for employees at Vercel.
 
@@ -350,6 +350,8 @@ def open_loading_modal(client, trigger_id):
 
 def update_modal_with_explanation(client, view_id, original_text: str, explanation: str):
     """Update an existing modal with the explanation."""
+    import json as _json
+
     preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
     blocks = [
         {
@@ -361,20 +363,27 @@ def update_modal_with_explanation(client, view_id, original_text: str, explanati
     blocks.extend(split_explanation_blocks(explanation))
     blocks.append({"type": "divider"})
     blocks.append({
-        "type": "context",
+        "type": "actions",
         "elements": [
             {
-                "type": "mrkdwn",
-                "text": "Want to ask follow-up questions? DM me or react to the original message with :speech_balloon:",
+                "type": "button",
+                "text": {"type": "plain_text", "text": ":speech_balloon: Chat about this"},
+                "action_id": "chat_about_this",
+                "style": "primary",
             }
         ],
     })
+
+    # Store original text in private_metadata so the button handler can access it
+    metadata = _json.dumps({"original_text": original_text[:2000]})
+
     client.views_update(
         view_id=view_id,
         view={
             "type": "modal",
             "title": {"type": "plain_text", "text": "ELI5 at your service"},
             "close": {"type": "plain_text", "text": "Close"},
+            "private_metadata": metadata,
             "blocks": blocks,
         },
     )
@@ -524,10 +533,46 @@ app.shortcut("explain_jargon_public")(
 )
 
 
+@app.action("chat_about_this")
+def handle_chat_button(ack, body, client, logger):
+    """Handle the 'Chat about this' button click in the modal."""
+    import json as _json
+
+    ack()
+    user_id = body.get("user", {}).get("id")
+    view = body.get("view", {})
+    metadata = view.get("private_metadata", "{}")
+
+    try:
+        data = _json.loads(metadata)
+        original_text = data.get("original_text", "")
+    except Exception:
+        original_text = ""
+
+    if not user_id:
+        return
+
+    try:
+        dm = client.conversations_open(users=[user_id])
+        dm_channel = dm["channel"]["id"]
+
+        preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
+        client.chat_postMessage(
+            channel=dm_channel,
+            text=(
+                "Hey! You wanted to chat about this message:\n\n"
+                f">{preview}\n\n"
+                "What would you like me to explain? Ask me anything!"
+            ),
+        )
+    except Exception as exc:
+        logger.exception(f"Failed to open DM from modal button: {exc}")
+
+
 @app.event("reaction_added")
 def handle_reaction(event, client, logger):
-    """When user reacts with 💬, start a DM conversation about that message."""
-    if event.get("reaction") != CHAT_TRIGGER_EMOJI:
+    """When user reacts with 💬 or :eli5:, start a DM conversation about that message."""
+    if event.get("reaction") not in CHAT_TRIGGER_EMOJIS:
         return
 
     user_id = event.get("user")
@@ -695,7 +740,8 @@ def handle_app_home(client, event, logger):
                             "type": "mrkdwn",
                             "text": (
                                 "*Want to chat about it?*\n"
-                                "• React to any message with :speech_balloon: and I'll DM you\n"
+                                "• Click the *Chat about this* button in the explanation\n"
+                                "• React to any message with :eli5: or :speech_balloon:\n"
                                 "• Or just DM me directly! Paste a Slack message link and I'll explain it"
                             ),
                         },
