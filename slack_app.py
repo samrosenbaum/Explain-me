@@ -174,7 +174,7 @@ def format_explanation_blocks(original_text: str, explanation: str) -> list:
 
 
 LOADING_MESSAGES = [
-    ":robot_face: Beep boop bop... translating from nerd to human...",
+    ":robot_face: Beep boop bop... translating the tech speak...",
     ":robot_face: Beep boop... consulting my jargon-to-English dictionary...",
     ":robot_face: Boop beep bop... decoding the tech speak...",
     ":robot_face: Beep boop... did you know the first computer bug was an actual moth? Anyway, thinking...",
@@ -240,11 +240,12 @@ def update_modal_with_explanation(client, view_id, original_text: str, explanati
     )
 
 
-@app.shortcut("explain_jargon")
-def handle_explain_jargon(ack, shortcut, client, logger):
-    """Handle the 'Explain Jargon' message shortcut (private - opens a modal)."""
+def handle_explain_jargon_ack(ack):
     ack()
 
+
+def handle_explain_jargon_lazy(shortcut, client, logger):
+    """Handle the 'Explain Jargon' message shortcut (private - opens a modal)."""
     message = shortcut.get("message", {})
     text = extract_message_text(message)
     trigger_id = shortcut.get("trigger_id")
@@ -290,11 +291,18 @@ def handle_explain_jargon(ack, shortcut, client, logger):
         )
 
 
-@app.shortcut("explain_jargon_public")
-def handle_explain_jargon_public(ack, shortcut, client, logger):
-    """Handle the 'Explain Jargon (Public)' message shortcut - posts to channel."""
+app.shortcut("explain_jargon")(
+    ack=handle_explain_jargon_ack,
+    lazy=[handle_explain_jargon_lazy],
+)
+
+
+def handle_explain_jargon_public_ack(ack):
     ack()
 
+
+def handle_explain_jargon_public_lazy(shortcut, client, logger):
+    """Handle the 'Explain Jargon (Public)' message shortcut - posts to channel."""
     message = shortcut.get("message", {})
     text = extract_message_text(message)
     channel_id = shortcut.get("channel", {}).get("id")
@@ -368,6 +376,12 @@ def handle_explain_jargon_public(ack, shortcut, client, logger):
                     ],
                 },
             )
+
+
+app.shortcut("explain_jargon_public")(
+    ack=handle_explain_jargon_public_ack,
+    lazy=[handle_explain_jargon_public_lazy],
+)
 
 
 @app.event("reaction_added")
