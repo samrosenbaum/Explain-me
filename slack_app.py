@@ -36,11 +36,7 @@ if not SLACK_BOT_TOKEN or not SLACK_SIGNING_SECRET:
         "Missing Slack credentials. Set SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET."
     )
 
-app = App(
-    token=SLACK_BOT_TOKEN,
-    signing_secret=SLACK_SIGNING_SECRET,
-    process_before_response=True,
-)
+app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
 
 # Emoji that triggers DM chat (user reacts with this to start a conversation)
 CHAT_TRIGGER_EMOJI = "speech_balloon"  # 💬
