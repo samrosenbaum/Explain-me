@@ -249,11 +249,9 @@ def slack_events():
             return "", 200
 
         if payload_type == "view_submission":
-            # Handle modal submit (e.g. "Chat about this")
+            # Handle modal submit — run inline (fast, just 2 API calls)
             print(f"[slack_events] handling view_submission", flush=True)
-            t = threading.Thread(target=handle_view_submission, args=(payload,))
-            t.start()
-            t.join(timeout=10)
+            handle_view_submission(payload)
             return "", 200
 
     # All other events go through slack-bolt
