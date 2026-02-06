@@ -98,14 +98,17 @@ def handle_shortcut_async(payload):
 
         update_modal_with_explanation(client, view_id, text, explanation)
 
-    except Exception:
+    except Exception as exc:
+        import traceback
+        print(f"[shortcut] Error: {exc}", flush=True)
+        traceback.print_exc()
         client.views_update(
             view_id=view_id,
             view={
                 "type": "modal",
                 "title": {"type": "plain_text", "text": "ELI5 at your service"},
                 "close": {"type": "plain_text", "text": "Close"},
-                "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "Sorry, I had trouble generating an explanation. Please try again."}}],
+                "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": f"Sorry, I had trouble generating an explanation.\n\n`{str(exc)[:200]}`"}}],
             },
         )
 
