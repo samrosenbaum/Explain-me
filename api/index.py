@@ -209,6 +209,115 @@ def handle_view_submission(payload):
         print(f"[view_submission] Error: {exc}", flush=True)
 
 
+def handle_dm_event(event):
+    """Handle a DM message event directly."""
+    import re
+    from slack_sdk import WebClient
+    from slack_app import (
+        SLACK_BOT_TOKEN, chat_response, get_explanation,
+        SLACK_MESSAGE_LINK_RE, fetch_slack_message,
+    )
+
+    client = WebClient(token=SLACK_BOT_TOKEN)
+    channel_id = event.get("channel")
+    user_message = event.get("text", "").strip()
+
+    if not user_message or not channel_id:
+        return
+
+    try:
+        # Check if the user pasted a Slack message link
+        link_match = SLACK_MESSAGE_LINK_RE.search(user_message)
+        if link_match:
+            linked_text = fetch_slack_message(client, link_match)
+            if linked_text:
+                explanation = get_explanation(linked_text)
+                preview = f"{linked_text[:500]}{'...' if len(linked_text) > 500 else ''}"
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text=(
+                        f"Here's that message:\n>{preview}\n\n"
+                        f"{explanation}\n\n"
+                        "Feel free to ask me follow-up questions!"
+                    ),
+                )
+            else:
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text="I couldn't fetch that message. I might not have access to that channel. Try copying the message text and sending it to me directly!",
+                )
+            return
+
+        # Regular conversation — build history and respond
+        result = client.conversations_history(channel=channel_id, limit=10)
+        history = result.get("messages", [])
+
+        messages = []
+        for msg in reversed(history[1:]):
+            if msg.get("bot_id"):
+                messages.append({"role": "assistant", "content": msg.get("text", "")})
+            elif not msg.get("subtype"):
+                messages.append({"role": "user", "content": msg.get("text", "")})
+        messages.append({"role": "user", "content": user_message})
+
+        response = chat_response(messages)
+        client.chat_postMessage(channel=channel_id, text=response)
+
+    except Exception as exc:
+        print(f"[dm_event] Error: {exc}", flush=True)
+        try:
+            client.chat_postMessage(
+                channel=channel_id,
+                text="Sorry, I had trouble processing that. Could you try again?",
+            )
+        except Exception:
+            pass
+
+
+def handle_reaction_event(event):
+    """Handle a reaction_added event directly."""
+    from slack_sdk import WebClient
+    from slack_app import SLACK_BOT_TOKEN, CHAT_TRIGGER_EMOJIS
+
+    if event.get("reaction") not in CHAT_TRIGGER_EMOJIS:
+        return
+
+    client = WebClient(token=SLACK_BOT_TOKEN)
+    user_id = event.get("user")
+    item = event.get("item", {})
+    channel_id = item.get("channel")
+    message_ts = item.get("ts")
+
+    if not all([user_id, channel_id, message_ts]):
+        return
+
+    try:
+        result = client.conversations_history(
+            channel=channel_id, latest=message_ts, limit=1, inclusive=True
+        )
+        messages = result.get("messages", [])
+        if not messages:
+            return
+
+        original_text = messages[0].get("text", "")
+        if not original_text:
+            return
+
+        dm = client.conversations_open(users=[user_id])
+        dm_channel = dm["channel"]["id"]
+        preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
+        client.chat_postMessage(
+            channel=dm_channel,
+            text=(
+                "Hey! I saw you wanted to chat about this message:\n\n"
+                f">{preview}\n\n"
+                "What would you like me to explain? Ask me anything!"
+            ),
+        )
+    except Exception as exc:
+        print(f"[reaction_event] Error: {exc}", flush=True)
+
+
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return {"ok": True}
@@ -254,7 +363,30 @@ def slack_events():
             handle_view_submission(payload)
             return "", 200
 
-    # All other events go through slack-bolt
+    # Handle event callbacks directly (slack-bolt handlers don't complete on Vercel)
+    if body.get("type") == "event_callback":
+        event = body.get("event", {})
+        event_type = event.get("type")
+        print(f"[slack_events] event_type={event_type}", flush=True)
+
+        if event_type == "message" and event.get("channel_type") == "im":
+            # DM message — handle in thread
+            if not event.get("bot_id") and not event.get("subtype"):
+                t = threading.Thread(target=handle_dm_event, args=(event,))
+                t.start()
+                t.join(timeout=25)
+            return jsonify({"ok": True})
+
+        if event_type == "reaction_added":
+            t = threading.Thread(target=handle_reaction_event, args=(event,))
+            t.start()
+            t.join(timeout=10)
+            return jsonify({"ok": True})
+
+        # Ack other events we don't handle directly
+        return jsonify({"ok": True})
+
+    # Fallback to slack-bolt for anything else
     from slack_bolt.adapter.flask import SlackRequestHandler
     handler = SlackRequestHandler(get_slack_app())
     return handler.handle(request)
