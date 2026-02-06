@@ -48,7 +48,7 @@ def handle_shortcut_async(payload):
     client = WebClient(token=SLACK_BOT_TOKEN)
     callback_id = payload.get("callback_id")
     message = payload.get("message", {})
-    text = extract_message_text(message)
+    text, images = extract_message_text(message, client=client)
     trigger_id = payload.get("trigger_id")
     channel_id = payload.get("channel", {}).get("id")
     message_ts = message.get("ts")
@@ -58,7 +58,7 @@ def handle_shortcut_async(payload):
     except Exception:
         return
 
-    if not text:
+    if not text and not images:
         client.views_update(
             view_id=view_id,
             view={
@@ -71,7 +71,7 @@ def handle_shortcut_async(payload):
         return
 
     try:
-        explanation = get_explanation(text)
+        explanation = get_explanation(text, images)
 
         if callback_id == "explain_jargon_public" and channel_id:
             try:

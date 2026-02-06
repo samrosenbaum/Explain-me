@@ -1,10 +1,13 @@
 """
-Slack Jargon Explainer - Explains technical terms in simple language.
+ELI5 - Explains technical terms in simple language for Vercel employees.
 
 Supports Vercel AI Gateway, direct Anthropic, or any OpenAI-compatible API.
 """
 
 import os
+import re
+import base64
+import urllib.request
 from slack_bolt import App
 
 try:
@@ -41,9 +44,27 @@ app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET)
 # Emoji that triggers DM chat (user reacts with this to start a conversation)
 CHAT_TRIGGER_EMOJI = "speech_balloon"  # 💬
 
-SYSTEM_PROMPT = "You explain technical jargon in simple, friendly terms. Be concise."
+SYSTEM_PROMPT = """You are ELI5, a friendly explainer bot for employees at Vercel.
 
-CHAT_SYSTEM_PROMPT = """You are a friendly technical explainer helping someone understand jargon and technical concepts.
+Vercel is a cloud platform for frontend developers. Key products and terms employees discuss:
+- Vercel Platform: Deploys frontend apps with serverless functions, edge network, automatic HTTPS
+- Next.js: React framework (created by Vercel) for SSR, SSG, ISR, App Router, Server Components
+- v0: AI-powered UI generation tool that creates React components from prompts
+- Turbopack: Rust-based bundler (successor to Webpack), used in Next.js dev server
+- Turborepo: Monorepo build tool with remote caching
+- Edge Functions / Edge Middleware: Code that runs at the CDN edge (not origin)
+- Serverless Functions: Backend code that scales to zero, runs on-demand
+- ISR (Incremental Static Regeneration): Revalidates static pages without full rebuild
+- AI SDK / AI Gateway: Vercel's tools for building AI-powered applications
+- DPS (Data Processing Service), KV, Postgres, Blob: Vercel storage products
+- Conformance: Enterprise code quality/governance tool
+- Vercel Firewall / WAF: Web application firewall and DDoS protection
+
+You explain technical concepts in simple, friendly terms. Be concise. You understand Vercel's products deeply and can relate jargon to how Vercel uses it internally."""
+
+CHAT_SYSTEM_PROMPT = """You are ELI5, a friendly technical explainer for Vercel employees helping them understand jargon and technical concepts.
+
+You know Vercel's products well: Next.js, v0, Turbopack, Turborepo, Edge Functions, Serverless Functions, ISR, AI SDK, KV, Postgres, Blob, Conformance, Firewall/WAF, and more.
 
 - Explain things in simple, plain English
 - Be conversational and helpful
@@ -53,17 +74,66 @@ CHAT_SYSTEM_PROMPT = """You are a friendly technical explainer helping someone u
 
 USER_PROMPT = """Explain the following message for someone who isn't familiar with the technical terms.
 
-- Break down any jargon, acronyms, or technical concepts
-- Use simple, plain English
-- Keep it brief (2-3 short paragraphs max)
-- If there's no jargon, just say so briefly
+Structure your response with these sections (use the exact headers with bold markdown):
+
+*Technical Terms*
+List the technical terms used and briefly define each one.
+
+*Abbreviations*
+List any abbreviations or acronyms and what they stand for. If there are none, skip this section entirely.
+
+*Here's What It Means*
+Rewrite the message in plain English so anyone can understand it.
+
+*Put Even Simpler*
+A one or two sentence version that a 5-year-old could understand.
 
 Message:
 {text}"""
 
 
-def extract_message_text(message: dict) -> str:
-    """Extract full text from a message, including content from link unfurls/attachments."""
+IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def fetch_url_content(url: str) -> str:
+    """Fetch a URL and return plain text content (HTML tags stripped)."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "ELI5-SlackBot/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        # Strip HTML tags
+        text = re.sub(r"<[^>]+>", " ", raw)
+        # Collapse whitespace
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:2000]
+    except Exception:
+        return ""
+
+
+def download_slack_image(file_info, client):
+    """Download an image file from Slack and return base64 data + mime type."""
+    mime = file_info.get("mimetype", "")
+    if mime not in IMAGE_MIME_TYPES:
+        return None
+    url = file_info.get("url_private_download") or file_info.get("url_private")
+    if not url:
+        return None
+    try:
+        req = urllib.request.Request(
+            url, headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = resp.read()
+        return {"base64": base64.b64encode(data).decode(), "mime_type": mime}
+    except Exception:
+        return None
+
+
+def extract_message_text(message: dict, client=None):
+    """Extract text and images from a message.
+
+    Returns (text, images) where images is a list of {"base64": ..., "mime_type": ...}.
+    """
     text = message.get("text", "").strip()
 
     # Pull text from Slack link unfurls and attachments
@@ -77,49 +147,99 @@ def extract_message_text(message: dict) -> str:
     if attachment_parts:
         text = text + "\n\n" + "\n\n".join(attachment_parts)
 
-    return text
+    # Fetch content from URLs in the message
+    urls = re.findall(r"https?://\S+", text)
+    for url in urls[:3]:  # Limit to 3 URLs
+        url = url.rstrip(">|)")  # Clean Slack formatting artifacts
+        if "slack.com" in url:
+            continue
+        content = fetch_url_content(url)
+        if content:
+            text += f"\n\n[Content from {url}]:\n{content}"
+
+    # Download images from file attachments
+    images = []
+    if client:
+        for f in message.get("files", []):
+            img = download_slack_image(f, client)
+            if img:
+                images.append(img)
+
+    return text, images
 
 
-def get_explanation(text: str) -> str:
+def get_explanation(text, images=None):
     """Get an explanation using available AI provider (Vercel AI Gateway preferred)."""
 
     if AI_GATEWAY_API_KEY:
-        return _explain_with_gateway(text)
+        return _explain_with_gateway(text, images)
     if ANTHROPIC_API_KEY:
-        return _explain_with_anthropic(text)
+        return _explain_with_anthropic(text, images)
     return (
         "No AI provider configured. "
         "Set `AI_GATEWAY_API_KEY` (for Vercel AI Gateway) or `ANTHROPIC_API_KEY`."
     )
 
 
-def _explain_with_anthropic(text: str) -> str:
+def _build_user_content(text, images=None, provider="openai"):
+    """Build the user message content array with text and optional images."""
+    prompt_text = USER_PROMPT.format(text=text)
+
+    if not images:
+        return prompt_text
+
+    # Multimodal: include images before the text prompt
+    content = []
+    for img in images:
+        if provider == "anthropic":
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": img["mime_type"],
+                    "data": img["base64"],
+                },
+            })
+        else:
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{img['mime_type']};base64,{img['base64']}",
+                },
+            })
+    content.append({"type": "text", "text": prompt_text})
+    return content
+
+
+def _explain_with_anthropic(text, images=None):
     """Use Anthropic's Claude API."""
     import anthropic
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    user_content = _build_user_content(text, images, provider="anthropic")
 
     message = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=1024,
+        max_tokens=2048,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": USER_PROMPT.format(text=text)}],
+        messages=[{"role": "user", "content": user_content}],
     )
 
     return message.content[0].text
 
 
-def _explain_with_gateway(text: str) -> str:
+def _explain_with_gateway(text, images=None):
     """Use Vercel AI Gateway or any OpenAI-compatible API."""
     import openai
 
     client = openai.OpenAI(api_key=AI_GATEWAY_API_KEY, base_url=AI_GATEWAY_BASE_URL)
+    user_content = _build_user_content(text, images, provider="openai")
 
     response = client.chat.completions.create(
         model=AI_GATEWAY_MODEL,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": USER_PROMPT.format(text=text)},
+            {"role": "user", "content": user_content},
         ],
         temperature=0.3,
     )
@@ -153,20 +273,46 @@ def chat_response(messages: list) -> str:
     return "No AI provider configured."
 
 
+def split_explanation_blocks(explanation: str) -> list:
+    """Split explanation into Slack blocks, respecting the 3000-char limit per block."""
+    blocks = []
+    # Split on section headers like *Technical Terms*, *Abbreviations*, etc.
+    sections = re.split(r"(?=\*(?:Technical Terms|Abbreviations|Here's What It Means|Put Even Simpler)\*)", explanation)
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+        # If a section is still too long, chunk it
+        while len(section) > 2900:
+            # Find a good break point
+            cut = section.rfind("\n", 0, 2900)
+            if cut < 100:
+                cut = 2900
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": section[:cut]},
+            })
+            section = section[cut:].strip()
+        if section:
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": section},
+            })
+    return blocks
+
+
 def format_explanation_blocks(original_text: str, explanation: str) -> list:
     """Format the explanation nicely using Slack Block Kit."""
     preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
-    return [
+    blocks = [
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": f"*Original message:*\n>{preview}"},
         },
         {"type": "divider"},
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*Explanation:*\n{explanation}"},
-        },
     ]
+    blocks.extend(split_explanation_blocks(explanation))
+    return blocks
 
 
 LOADING_MESSAGES = [
@@ -205,33 +351,31 @@ def open_loading_modal(client, trigger_id):
 def update_modal_with_explanation(client, view_id, original_text: str, explanation: str):
     """Update an existing modal with the explanation."""
     preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
+    blocks = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Original message:*\n>{preview}"},
+        },
+        {"type": "divider"},
+    ]
+    blocks.extend(split_explanation_blocks(explanation))
+    blocks.append({"type": "divider"})
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": "Want to ask follow-up questions? DM me or react to the original message with :speech_balloon:",
+            }
+        ],
+    })
     client.views_update(
         view_id=view_id,
         view={
             "type": "modal",
             "title": {"type": "plain_text", "text": "ELI5 at your service"},
             "close": {"type": "plain_text", "text": "Close"},
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"*Original message:*\n>{preview}"},
-                },
-                {"type": "divider"},
-                {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"*Explanation:*\n{explanation}"},
-                },
-                {"type": "divider"},
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": "Want to ask follow-up questions? React to the original message with :speech_balloon: to start a DM chat.",
-                        }
-                    ],
-                },
-            ],
+            "blocks": blocks,
         },
     )
 
@@ -243,13 +387,13 @@ def handle_explain_jargon_ack(ack):
 def handle_explain_jargon_lazy(shortcut, client, logger):
     """Handle the 'Explain Jargon' message shortcut (private - opens a modal)."""
     message = shortcut.get("message", {})
-    text = extract_message_text(message)
+    text, images = extract_message_text(message, client=client)
     trigger_id = shortcut.get("trigger_id")
 
     # Open modal immediately (trigger_id expires in 3s)
     view_id = open_loading_modal(client, trigger_id)
 
-    if not text:
+    if not text and not images:
         client.views_update(
             view_id=view_id,
             view={
@@ -267,7 +411,7 @@ def handle_explain_jargon_lazy(shortcut, client, logger):
         return
 
     try:
-        explanation = get_explanation(text)
+        explanation = get_explanation(text, images)
         update_modal_with_explanation(client, view_id, text, explanation)
     except Exception as exc:
         logger.exception(f"Failed to generate explanation: {exc}")
@@ -300,7 +444,7 @@ def handle_explain_jargon_public_ack(ack):
 def handle_explain_jargon_public_lazy(shortcut, client, logger):
     """Handle the 'Explain Jargon (Public)' message shortcut - posts to channel."""
     message = shortcut.get("message", {})
-    text = extract_message_text(message)
+    text, images = extract_message_text(message, client=client)
     channel_id = shortcut.get("channel", {}).get("id")
     message_ts = message.get("ts")
     trigger_id = shortcut.get("trigger_id")
@@ -308,7 +452,7 @@ def handle_explain_jargon_public_lazy(shortcut, client, logger):
     # Open modal immediately as loading indicator
     view_id = open_loading_modal(client, trigger_id)
 
-    if not text:
+    if not text and not images:
         client.views_update(
             view_id=view_id,
             view={
@@ -326,7 +470,7 @@ def handle_explain_jargon_public_lazy(shortcut, client, logger):
         return
 
     try:
-        explanation = get_explanation(text)
+        explanation = get_explanation(text, images)
         blocks = format_explanation_blocks(text, explanation)
 
         # Try to post publicly to the channel
@@ -421,6 +565,29 @@ def handle_reaction(event, client, logger):
         logger.exception(f"Failed to start DM conversation: {exc}")
 
 
+SLACK_MESSAGE_LINK_RE = re.compile(
+    r"https?://[a-zA-Z0-9\-]+\.slack\.com/archives/([A-Z0-9]+)/p(\d+)"
+)
+
+
+def fetch_slack_message(client, link_match):
+    """Fetch the text of a Slack message from a message link."""
+    channel_id = link_match.group(1)
+    # Slack encodes ts as digits without dot; e.g. p1234567890123456 -> 1234567890.123456
+    raw_ts = link_match.group(2)
+    message_ts = raw_ts[:10] + "." + raw_ts[10:]
+    try:
+        result = client.conversations_history(
+            channel=channel_id, latest=message_ts, limit=1, inclusive=True
+        )
+        msgs = result.get("messages", [])
+        if msgs:
+            return msgs[0].get("text", "")
+    except Exception:
+        pass
+    return None
+
+
 @app.event("message")
 def handle_dm_message(event, client, logger):
     """Handle direct messages - have a conversation with the user."""
@@ -437,6 +604,29 @@ def handle_dm_message(event, client, logger):
         return
 
     try:
+        # Check if the user pasted a Slack message link
+        link_match = SLACK_MESSAGE_LINK_RE.search(user_message)
+        if link_match:
+            linked_text = fetch_slack_message(client, link_match)
+            if linked_text:
+                # Give them an explanation of the linked message
+                explanation = get_explanation(linked_text)
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text=(
+                        f"Here's that message:\n>{linked_text[:500]}{'...' if len(linked_text) > 500 else ''}\n\n"
+                        f"{explanation}\n\n"
+                        "Feel free to ask me follow-up questions!"
+                    ),
+                )
+                return
+            else:
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text="I couldn't fetch that message. I might not have access to that channel. Try copying the message text and sending it to me directly!",
+                )
+                return
+
         result = client.conversations_history(channel=channel_id, limit=10)
         history = result.get("messages", [])
 
@@ -471,15 +661,15 @@ def handle_app_home(client, event, logger):
                 "blocks": [
                     {
                         "type": "header",
-                        "text": {"type": "plain_text", "text": "Jargon Explainer"},
+                        "text": {"type": "plain_text", "text": "ELI5 at your service"},
                     },
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
                             "text": (
-                                "I help you understand technical jargon and acronyms "
-                                "in simple terms."
+                                "I help you understand technical terms, acronyms, "
+                                "and complex concepts in simple language."
                             ),
                         },
                     },
@@ -493,9 +683,8 @@ def handle_app_home(client, event, logger):
                                 "1. Find a message with confusing technical terms\n"
                                 "2. Click the *three dots menu* (more actions) "
                                 "on the message\n"
-                                "3. Choose an option:\n"
-                                "   • *Explain Jargon* → private (only you see it)\n"
-                                "   • *Explain Jargon (Public)* → posts to the channel"
+                                "3. Choose *ELI5* to get an explanation\n"
+                                "I can also read images and links in messages!"
                             ),
                         },
                     },
@@ -506,8 +695,8 @@ def handle_app_home(client, event, logger):
                             "type": "mrkdwn",
                             "text": (
                                 "*Want to chat about it?*\n"
-                                "React to any message with 💬 and I'll DM you "
-                                "so we can discuss it!"
+                                "• React to any message with :speech_balloon: and I'll DM you\n"
+                                "• Or just DM me directly! Paste a Slack message link and I'll explain it"
                             ),
                         },
                     },
