@@ -1,4 +1,5 @@
 {
+  "framework": null,
   "rewrites": [
     { "source": "/api/slack/events", "destination": "/api/index.py" },
     { "source": "/api/health", "destination": "/api/index.py" }
