@@ -1,9 +1,6 @@
 {
-  "builds": [
-    { "src": "api/index.py", "use": "@vercel/python" }
-  ],
   "rewrites": [
-    { "source": "/api/slack/events", "destination": "/api/index.py" },
-    { "source": "/api/health", "destination": "/api/index.py" }
+    { "source": "/api/slack/events", "destination": "/api" },
+    { "source": "/api/health", "destination": "/api" }
   ]
 }
