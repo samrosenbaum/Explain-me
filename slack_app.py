@@ -193,7 +193,7 @@ def open_loading_modal(client, trigger_id):
         trigger_id=trigger_id,
         view={
             "type": "modal",
-            "title": {"type": "plain_text", "text": "Tech Stuff Explained"},
+            "title": {"type": "plain_text", "text": "ELI5 at your service"},
             "close": {"type": "plain_text", "text": "Close"},
             "blocks": [
                 {
@@ -213,7 +213,7 @@ def update_modal_with_explanation(client, view_id, original_text: str, explanati
         view_id=view_id,
         view={
             "type": "modal",
-            "title": {"type": "plain_text", "text": "Tech Stuff Explained"},
+            "title": {"type": "plain_text", "text": "ELI5 at your service"},
             "close": {"type": "plain_text", "text": "Close"},
             "blocks": [
                 {
@@ -258,7 +258,7 @@ def handle_explain_jargon_lazy(shortcut, client, logger):
             view_id=view_id,
             view={
                 "type": "modal",
-                "title": {"type": "plain_text", "text": "Tech Stuff Explained"},
+                "title": {"type": "plain_text", "text": "ELI5 at your service"},
                 "close": {"type": "plain_text", "text": "Close"},
                 "blocks": [
                     {
@@ -279,7 +279,7 @@ def handle_explain_jargon_lazy(shortcut, client, logger):
             view_id=view_id,
             view={
                 "type": "modal",
-                "title": {"type": "plain_text", "text": "Tech Stuff Explained"},
+                "title": {"type": "plain_text", "text": "ELI5 at your service"},
                 "close": {"type": "plain_text", "text": "Close"},
                 "blocks": [
                     {
@@ -317,7 +317,7 @@ def handle_explain_jargon_public_lazy(shortcut, client, logger):
             view_id=view_id,
             view={
                 "type": "modal",
-                "title": {"type": "plain_text", "text": "Tech Stuff Explained"},
+                "title": {"type": "plain_text", "text": "ELI5 at your service"},
                 "close": {"type": "plain_text", "text": "Close"},
                 "blocks": [
                     {
@@ -345,7 +345,7 @@ def handle_explain_jargon_public_lazy(shortcut, client, logger):
             view_id=view_id,
             view={
                 "type": "modal",
-                "title": {"type": "plain_text", "text": "Tech Stuff Explained"},
+                "title": {"type": "plain_text", "text": "ELI5 at your service"},
                 "close": {"type": "plain_text", "text": "Close"},
                 "blocks": [
                     {
@@ -366,7 +366,7 @@ def handle_explain_jargon_public_lazy(shortcut, client, logger):
                 view_id=view_id,
                 view={
                     "type": "modal",
-                    "title": {"type": "plain_text", "text": "Tech Stuff Explained"},
+                    "title": {"type": "plain_text", "text": "ELI5 at your service"},
                     "close": {"type": "plain_text", "text": "Close"},
                     "blocks": [
                         {
