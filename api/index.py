@@ -112,6 +112,7 @@ def handle_shortcut_async(payload):
 
 def handle_block_action(payload):
     """Handle block_actions like button clicks in modals."""
+    import traceback
     from slack_sdk import WebClient
     from slack_app import SLACK_BOT_TOKEN
 
@@ -119,13 +120,16 @@ def handle_block_action(payload):
 
     actions = payload.get("actions", [])
     if not actions:
+        print("[block_action] No actions in payload")
         return
 
     action_id = actions[0].get("action_id")
+    print(f"[block_action] action_id={action_id}")
 
     if action_id == "chat_about_this":
         user_id = payload.get("user", {}).get("id")
         view = payload.get("view", {})
+        view_id = view.get("id")
         metadata = view.get("private_metadata", "{}")
 
         try:
@@ -135,6 +139,7 @@ def handle_block_action(payload):
             original_text = ""
 
         if not user_id:
+            print("[block_action] No user_id")
             return
 
         try:
@@ -149,8 +154,20 @@ def handle_block_action(payload):
                     "What would you like me to explain? Ask me anything!"
                 ),
             )
-        except Exception:
-            pass
+            # Update modal to confirm DM was sent
+            if view_id:
+                client.views_update(
+                    view_id=view_id,
+                    view={
+                        "type": "modal",
+                        "title": {"type": "plain_text", "text": "ELI5 at your service"},
+                        "close": {"type": "plain_text", "text": "Close"},
+                        "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": ":white_check_mark: Check your DMs! I sent you a message so we can chat."}}],
+                    },
+                )
+        except Exception as exc:
+            print(f"[block_action] Error: {exc}")
+            traceback.print_exc()
 
 
 @app.route("/api/health", methods=["GET"])
