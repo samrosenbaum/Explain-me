@@ -359,8 +359,23 @@ def open_loading_modal(client, trigger_id):
     return result["view"]["id"]
 
 
-def update_modal_with_explanation(client, view_id, original_text: str, explanation: str):
-    """Update an existing modal with the explanation."""
+def build_modal_metadata(original_text, conversation=None):
+    """Build private_metadata JSON for the modal. Stays under 3000 char limit."""
+    import json as _json
+    data = {
+        "original_text": original_text[:800],
+        "conversation": conversation or [],
+    }
+    result = _json.dumps(data)
+    # Truncate conversation if metadata is too long
+    while len(result) > 2900 and data["conversation"]:
+        data["conversation"].pop(0)
+        result = _json.dumps(data)
+    return result
+
+
+def build_explanation_modal_view(original_text, explanation, conversation=None):
+    """Build the modal view dict with explanation, follow-up Q&A, and input field."""
     preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
     blocks = [
         {
@@ -370,26 +385,53 @@ def update_modal_with_explanation(client, view_id, original_text: str, explanati
         {"type": "divider"},
     ]
     blocks.extend(split_explanation_blocks(explanation))
+
+    # Show previous follow-up Q&A
+    if conversation:
+        for entry in conversation:
+            if entry.get("role") == "user":
+                blocks.append({"type": "divider"})
+                blocks.append({
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*You asked:* {entry['content']}"},
+                })
+            elif entry.get("role") == "assistant":
+                blocks.append({
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": entry["content"]},
+                })
+
     blocks.append({"type": "divider"})
     blocks.append({
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": "Want to dig deeper? Just DM me and ask follow-up questions!",
-            }
-        ],
+        "type": "input",
+        "block_id": "followup_block",
+        "optional": True,
+        "element": {
+            "type": "plain_text_input",
+            "action_id": "followup_input",
+            "placeholder": {"type": "plain_text", "text": "Ask a follow-up question..."},
+        },
+        "label": {"type": "plain_text", "text": "Want to dig deeper?"},
     })
 
-    client.views_update(
-        view_id=view_id,
-        view={
-            "type": "modal",
-            "title": {"type": "plain_text", "text": "ELI5 at your service"},
-            "close": {"type": "plain_text", "text": "Close"},
-            "blocks": blocks,
-        },
-    )
+    metadata = build_modal_metadata(original_text, conversation)
+
+    return {
+        "type": "modal",
+        "callback_id": "eli5_followup",
+        "notify_on_close": True,
+        "title": {"type": "plain_text", "text": "ELI5 at your service"},
+        "submit": {"type": "plain_text", "text": "Ask"},
+        "close": {"type": "plain_text", "text": "Done"},
+        "private_metadata": metadata,
+        "blocks": blocks,
+    }
+
+
+def update_modal_with_explanation(client, view_id, original_text: str, explanation: str):
+    """Update an existing modal with the explanation."""
+    view = build_explanation_modal_view(original_text, explanation)
+    client.views_update(view_id=view_id, view=view)
 
 
 def handle_explain_jargon_ack(ack):

@@ -174,39 +174,120 @@ def handle_block_action(payload):
 
 
 def handle_view_submission(payload):
-    """Handle modal submit — opens a DM with the user."""
+    """Handle modal submit — process follow-up question, return updated view."""
+    from slack_app import (
+        chat_response, build_explanation_modal_view, build_modal_metadata,
+        CHAT_SYSTEM_PROMPT,
+    )
+
+    view = payload.get("view", {})
+    callback_id = view.get("callback_id")
+
+    if callback_id != "eli5_followup":
+        return None
+
+    metadata = view.get("private_metadata", "{}")
+    try:
+        data = json.loads(metadata)
+    except Exception:
+        data = {}
+
+    original_text = data.get("original_text", "")
+    conversation = data.get("conversation", [])
+
+    # Get the follow-up question from the input
+    values = view.get("state", {}).get("values", {})
+    followup_block = values.get("followup_block", {})
+    followup_input = followup_block.get("followup_input", {})
+    question = followup_input.get("value", "").strip()
+
+    if not question:
+        return None
+
+    # Build message history for AI
+    messages = [
+        {"role": "user", "content": f"Original message to explain:\n{original_text}"},
+    ]
+    for entry in conversation:
+        messages.append(entry)
+    messages.append({"role": "user", "content": question})
+
+    try:
+        answer = chat_response(messages)
+    except Exception as exc:
+        print(f"[view_submission] AI error: {exc}", flush=True)
+        answer = "Sorry, I had trouble with that question. Try asking differently!"
+
+    # Update conversation history
+    conversation.append({"role": "user", "content": question})
+    conversation.append({"role": "assistant", "content": answer})
+
+    # Extract the initial explanation from the current blocks
+    # (everything between the first divider and the follow-up section)
+    blocks = view.get("blocks", [])
+    explanation_parts = []
+    in_explanation = False
+    for block in blocks:
+        if block.get("type") == "divider" and not in_explanation:
+            in_explanation = True
+            continue
+        if in_explanation:
+            if block.get("type") == "divider":
+                break
+            text = block.get("text", {}).get("text", "")
+            if text:
+                explanation_parts.append(text)
+    initial_explanation = "\n\n".join(explanation_parts)
+
+    # Return updated view
+    return build_explanation_modal_view(
+        original_text, initial_explanation, conversation
+    )
+
+
+def handle_view_closed(payload):
+    """When modal closes, send conversation recap to user's DM."""
     from slack_sdk import WebClient
     from slack_app import SLACK_BOT_TOKEN
 
-    client = WebClient(token=SLACK_BOT_TOKEN)
-    user_id = payload.get("user", {}).get("id")
     view = payload.get("view", {})
     callback_id = view.get("callback_id")
-    metadata = view.get("private_metadata", "{}")
+    user_id = payload.get("user", {}).get("id")
 
-    if callback_id != "chat_about_this" or not user_id:
+    if callback_id != "eli5_followup" or not user_id:
         return
 
+    metadata = view.get("private_metadata", "{}")
     try:
         data = json.loads(metadata)
-        original_text = data.get("original_text", "")
     except Exception:
-        original_text = ""
+        return
+
+    conversation = data.get("conversation", [])
+    if not conversation:
+        return  # No follow-up questions were asked, skip DM
+
+    original_text = data.get("original_text", "")
+    client = WebClient(token=SLACK_BOT_TOKEN)
 
     try:
+        # Build recap message
+        recap = ":robot_face: *Here's your ELI5 conversation for reference:*\n\n"
+        if original_text:
+            preview = f"{original_text[:300]}{'...' if len(original_text) > 300 else ''}"
+            recap += f"*Original message:*\n>{preview}\n\n"
+
+        for entry in conversation:
+            if entry["role"] == "user":
+                recap += f"*You asked:* {entry['content']}\n\n"
+            else:
+                recap += f"{entry['content']}\n\n"
+
         dm = client.conversations_open(users=[user_id])
         dm_channel = dm["channel"]["id"]
-        preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
-        client.chat_postMessage(
-            channel=dm_channel,
-            text=(
-                "Hey! You wanted to chat about this message:\n\n"
-                f">{preview}\n\n"
-                "What would you like me to explain? Ask me anything!"
-            ),
-        )
+        client.chat_postMessage(channel=dm_channel, text=recap)
     except Exception as exc:
-        print(f"[view_submission] Error: {exc}", flush=True)
+        print(f"[view_closed] Error: {exc}", flush=True)
 
 
 def handle_dm_event(event):
@@ -358,9 +439,17 @@ def slack_events():
             return "", 200
 
         if payload_type == "view_submission":
-            # Handle modal submit — run inline (fast, just 2 API calls)
+            # Handle follow-up questions in modal
             print(f"[slack_events] handling view_submission", flush=True)
-            handle_view_submission(payload)
+            updated_view = handle_view_submission(payload)
+            if updated_view:
+                return jsonify({"response_action": "update", "view": updated_view})
+            return "", 200
+
+        if payload_type == "view_closed":
+            # Send conversation recap to DM when modal closes
+            print(f"[slack_events] handling view_closed", flush=True)
+            handle_view_closed(payload)
             return "", 200
 
     # Handle event callbacks directly (slack-bolt handlers don't complete on Vercel)
