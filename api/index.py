@@ -110,6 +110,49 @@ def handle_shortcut_async(payload):
         )
 
 
+def handle_block_action(payload):
+    """Handle block_actions like button clicks in modals."""
+    from slack_sdk import WebClient
+    from slack_app import SLACK_BOT_TOKEN
+
+    client = WebClient(token=SLACK_BOT_TOKEN)
+
+    actions = payload.get("actions", [])
+    if not actions:
+        return
+
+    action_id = actions[0].get("action_id")
+
+    if action_id == "chat_about_this":
+        user_id = payload.get("user", {}).get("id")
+        view = payload.get("view", {})
+        metadata = view.get("private_metadata", "{}")
+
+        try:
+            data = json.loads(metadata)
+            original_text = data.get("original_text", "")
+        except Exception:
+            original_text = ""
+
+        if not user_id:
+            return
+
+        try:
+            dm = client.conversations_open(users=[user_id])
+            dm_channel = dm["channel"]["id"]
+            preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
+            client.chat_postMessage(
+                channel=dm_channel,
+                text=(
+                    "Hey! You wanted to chat about this message:\n\n"
+                    f">{preview}\n\n"
+                    "What would you like me to explain? Ask me anything!"
+                ),
+            )
+        except Exception:
+            pass
+
+
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return {"ok": True}
@@ -136,6 +179,13 @@ def slack_events():
             t.start()
             # Wait for it to complete (Vercel keeps function alive until response)
             t.join(timeout=25)
+            return "", 200
+
+        if payload.get("type") == "block_actions":
+            # Handle button clicks (e.g. "Chat about this" in modal)
+            t = threading.Thread(target=handle_block_action, args=(payload,))
+            t.start()
+            t.join(timeout=10)
             return "", 200
 
     # All other events go through slack-bolt
