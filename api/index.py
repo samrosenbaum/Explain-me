@@ -471,12 +471,13 @@ def slack_events():
                 view_id, question, original_text, conversation, initial_explanation = parsed
                 print(f"[view_submission] q={question[:50]}, vid={view_id}", flush=True)
 
-                from slack_app import build_explanation_modal_view
+                import random
+                from slack_app import build_explanation_modal_view, THINKING_MESSAGES
 
                 # Build "Thinking..." view to return immediately (within 3s)
                 thinking_conv = list(conversation) + [
                     {"role": "user", "content": question},
-                    {"role": "assistant", "content": ":hourglass_flowing_sand: Thinking..."},
+                    {"role": "assistant", "content": random.choice(THINKING_MESSAGES)},
                 ]
                 thinking_view = build_explanation_modal_view(
                     original_text, initial_explanation, thinking_conv

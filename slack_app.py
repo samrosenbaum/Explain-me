@@ -27,6 +27,9 @@ AI_GATEWAY_BASE_URL = os.environ.get(
 AI_GATEWAY_MODEL = os.environ.get(
     "AI_GATEWAY_MODEL", "anthropic/claude-sonnet-4-20250514"
 )
+AI_GATEWAY_CHAT_MODEL = os.environ.get(
+    "AI_GATEWAY_CHAT_MODEL", "anthropic/claude-haiku-3-5-20241022"
+)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 # Slack config
@@ -267,15 +270,16 @@ def _explain_with_gateway(text, images=None):
 
 
 def chat_response(messages: list) -> str:
-    """Generate a conversational response given message history."""
+    """Generate a conversational response given message history. Uses a fast model (Haiku)."""
     if AI_GATEWAY_API_KEY:
         import openai
 
         client = openai.OpenAI(api_key=AI_GATEWAY_API_KEY, base_url=AI_GATEWAY_BASE_URL)
         response = client.chat.completions.create(
-            model=AI_GATEWAY_MODEL,
+            model=AI_GATEWAY_CHAT_MODEL,
             messages=[{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + messages,
             temperature=0.4,
+            max_tokens=1024,
         )
         return response.choices[0].message.content.strip()
     if ANTHROPIC_API_KEY:
@@ -283,7 +287,7 @@ def chat_response(messages: list) -> str:
 
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-haiku-3-5-20241022",
             max_tokens=1024,
             system=CHAT_SYSTEM_PROMPT,
             messages=messages,
@@ -343,6 +347,14 @@ LOADING_MESSAGES = [
     ":robot_face: Beep bop... fun fact: the first 1GB hard drive weighed 550 pounds. Translating your message...",
     ":robot_face: Beep boop bop... crunching the jargon into bite-sized pieces...",
     ":robot_face: Boop beep... warming up my explain-o-tron 3000...",
+]
+
+THINKING_MESSAGES = [
+    ":hourglass_flowing_sand: Great question! Let me think about that...",
+    ":hourglass_flowing_sand: Ooh, good one. Thinking...",
+    ":hourglass_flowing_sand: On it! Brewing up an answer...",
+    ":hourglass_flowing_sand: Let me dig into that for you...",
+    ":hourglass_flowing_sand: Hmm, let me put on my thinking cap...",
 ]
 
 
