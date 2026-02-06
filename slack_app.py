@@ -55,7 +55,8 @@ Vercel is a cloud platform for frontend developers. Key products and terms emplo
 - Edge Functions / Edge Middleware: Code that runs at the CDN edge (not origin)
 - Serverless Functions: Backend code that scales to zero, runs on-demand
 - ISR (Incremental Static Regeneration): Revalidates static pages without full rebuild
-- AI SDK / AI Gateway: Vercel's tools for building AI-powered applications
+- AI SDK: Vercel's TypeScript toolkit for building AI-powered applications
+- AI Gateway: Unified API endpoint routing to 100+ models across providers. Provides automatic provider fallback when primary fails, request/response passthrough with no markup on BYOK pricing, and a dashboard showing Requests by Model, TTFT, Token Counts, and Spend
 - DPS (Data Processing Service), KV, Postgres, Blob: Vercel storage products
 - Conformance: Enterprise code quality/governance tool
 - Vercel Firewall / WAF: Web application firewall and DDoS protection
