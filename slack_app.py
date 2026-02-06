@@ -169,8 +169,22 @@ def format_explanation_blocks(original_text: str, explanation: str) -> list:
     ]
 
 
+LOADING_MESSAGES = [
+    ":robot_face: Beep boop bop... translating from nerd to human...",
+    ":robot_face: Beep boop... consulting my jargon-to-English dictionary...",
+    ":robot_face: Boop beep bop... decoding the tech speak...",
+    ":robot_face: Beep boop... did you know the first computer bug was an actual moth? Anyway, thinking...",
+    ":robot_face: Boop boop beep... fun fact: 'HTTP' stands for HyperText Transfer Protocol. Now let me explain the rest...",
+    ":robot_face: Beep bop... fun fact: the first 1GB hard drive weighed 550 pounds. Translating your message...",
+    ":robot_face: Beep boop bop... crunching the jargon into bite-sized pieces...",
+    ":robot_face: Boop beep... warming up my explain-o-tron 3000...",
+]
+
+
 def open_loading_modal(client, trigger_id):
     """Open a modal with a loading state. Returns the view ID for updating later."""
+    import random
+    loading_msg = random.choice(LOADING_MESSAGES)
     result = client.views_open(
         trigger_id=trigger_id,
         view={
@@ -180,7 +194,7 @@ def open_loading_modal(client, trigger_id):
             "blocks": [
                 {
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": ":hourglass_flowing_sand: Thinking..."},
+                    "text": {"type": "mrkdwn", "text": loading_msg},
                 },
             ],
         },
