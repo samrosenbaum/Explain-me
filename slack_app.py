@@ -71,11 +71,19 @@ You know Vercel's products well: Next.js, v0, Turbopack, Turborepo, Edge Functio
 - Be conversational and helpful
 - If they ask follow-up questions, build on what you've already explained
 - Keep responses concise but thorough
-- If you're not sure what they're asking about, ask for clarification"""
+- If you're not sure what they're asking about, ask for clarification
+- Use Slack mrkdwn formatting: *bold* (single asterisks), _italic_, `code`, • for bullets. Do NOT use ** or # or other standard Markdown."""
 
 USER_PROMPT = """Explain the following message for someone who isn't familiar with the technical terms.
 
-Structure your response with these sections (use the exact headers with bold markdown):
+IMPORTANT: Use Slack mrkdwn formatting (NOT standard Markdown):
+- Bold: *text* (single asterisks, NOT double)
+- Italic: _text_ (underscores)
+- Code: `text` (backticks)
+- Lists: use • or - for bullets
+- Do NOT use # for headers, ** for bold, or any other standard Markdown
+
+Structure your response with these sections:
 
 *TLDR*
 A one or two sentence version that a 5-year-old could understand.
