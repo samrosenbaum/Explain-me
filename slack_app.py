@@ -172,14 +172,24 @@ def extract_message_text(message: dict, client=None):
 def get_explanation(text, images=None):
     """Get an explanation using available AI provider (Vercel AI Gateway preferred)."""
 
+    if not AI_GATEWAY_API_KEY and not ANTHROPIC_API_KEY:
+        return (
+            "No AI provider configured. "
+            "Set `AI_GATEWAY_API_KEY` (for Vercel AI Gateway) or `ANTHROPIC_API_KEY`."
+        )
+
+    # Try with images first, fall back to text-only if image processing fails
+    if images:
+        try:
+            if AI_GATEWAY_API_KEY:
+                return _explain_with_gateway(text, images)
+            return _explain_with_anthropic(text, images)
+        except Exception:
+            pass  # Retry without images below
+
     if AI_GATEWAY_API_KEY:
-        return _explain_with_gateway(text, images)
-    if ANTHROPIC_API_KEY:
-        return _explain_with_anthropic(text, images)
-    return (
-        "No AI provider configured. "
-        "Set `AI_GATEWAY_API_KEY` (for Vercel AI Gateway) or `ANTHROPIC_API_KEY`."
-    )
+        return _explain_with_gateway(text)
+    return _explain_with_anthropic(text)
 
 
 def _build_user_content(text, images=None, provider="openai"):
