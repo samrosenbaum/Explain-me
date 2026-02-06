@@ -20,6 +20,7 @@ def health_check():
 
 
 @app.route("/api/slack/events", methods=["POST"])
+@app.route("/api", methods=["POST"])
 def slack_events():
     body = request.get_json(silent=True) or {}
 
