@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify, make_response
 
 app = Flask(__name__)
 
@@ -21,4 +21,10 @@ def health_check():
 
 @app.route("/api/slack/events", methods=["POST"])
 def slack_events():
+    body = request.get_json(silent=True) or {}
+
+    # Handle Slack URL verification challenge directly
+    if body.get("type") == "url_verification":
+        return jsonify({"challenge": body.get("challenge")})
+
     return get_handler().handle(request)
