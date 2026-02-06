@@ -181,16 +181,20 @@ def slack_events():
     body_bytes = request.get_data()
     body = request.get_json(silent=True) or {}
 
+    print(f"[slack_events] content_type={request.content_type}", flush=True)
+
     # Handle Slack URL verification challenge
     if body.get("type") == "url_verification":
         return jsonify({"challenge": body.get("challenge")})
 
-    # Handle interactive payloads (shortcuts)
+    # Handle interactive payloads (shortcuts, button clicks)
     if request.content_type and "x-www-form-urlencoded" in request.content_type:
         payload_str = request.form.get("payload", "{}")
         payload = json.loads(payload_str)
+        payload_type = payload.get("type")
+        print(f"[slack_events] payload_type={payload_type}", flush=True)
 
-        if payload.get("type") == "shortcut" or payload.get("type") == "message_action":
+        if payload_type in ("shortcut", "message_action"):
             # Start processing in a thread, respond to Slack immediately
             t = threading.Thread(target=handle_shortcut_async, args=(payload,))
             t.start()
@@ -198,8 +202,9 @@ def slack_events():
             t.join(timeout=25)
             return "", 200
 
-        if payload.get("type") == "block_actions":
+        if payload_type == "block_actions":
             # Handle button clicks (e.g. "Chat about this" in modal)
+            print(f"[slack_events] handling block_actions", flush=True)
             t = threading.Thread(target=handle_block_action, args=(payload,))
             t.start()
             t.join(timeout=10)
