@@ -372,27 +372,17 @@ def update_modal_with_explanation(client, view_id, original_text: str, explanati
         {"type": "divider"},
     ]
     blocks.extend(split_explanation_blocks(explanation))
-    blocks.append({"type": "divider"})
-    blocks.append({
-        "type": "actions",
-        "elements": [
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": ":speech_balloon: Chat about this"},
-                "action_id": "chat_about_this",
-                "style": "primary",
-            }
-        ],
-    })
 
-    # Store original text in private_metadata so the button handler can access it
+    # Store original text in private_metadata so the submit handler can access it
     metadata = _json.dumps({"original_text": original_text[:2000]})
 
     client.views_update(
         view_id=view_id,
         view={
             "type": "modal",
+            "callback_id": "chat_about_this",
             "title": {"type": "plain_text", "text": "ELI5 at your service"},
+            "submit": {"type": "plain_text", "text": "Chat about this"},
             "close": {"type": "plain_text", "text": "Close"},
             "private_metadata": metadata,
             "blocks": blocks,

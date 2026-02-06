@@ -173,6 +173,42 @@ def handle_block_action(payload):
             traceback.print_exc()
 
 
+def handle_view_submission(payload):
+    """Handle modal submit — opens a DM with the user."""
+    from slack_sdk import WebClient
+    from slack_app import SLACK_BOT_TOKEN
+
+    client = WebClient(token=SLACK_BOT_TOKEN)
+    user_id = payload.get("user", {}).get("id")
+    view = payload.get("view", {})
+    callback_id = view.get("callback_id")
+    metadata = view.get("private_metadata", "{}")
+
+    if callback_id != "chat_about_this" or not user_id:
+        return
+
+    try:
+        data = json.loads(metadata)
+        original_text = data.get("original_text", "")
+    except Exception:
+        original_text = ""
+
+    try:
+        dm = client.conversations_open(users=[user_id])
+        dm_channel = dm["channel"]["id"]
+        preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
+        client.chat_postMessage(
+            channel=dm_channel,
+            text=(
+                "Hey! You wanted to chat about this message:\n\n"
+                f">{preview}\n\n"
+                "What would you like me to explain? Ask me anything!"
+            ),
+        )
+    except Exception as exc:
+        print(f"[view_submission] Error: {exc}", flush=True)
+
+
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return {"ok": True}
@@ -206,9 +242,16 @@ def slack_events():
             return "", 200
 
         if payload_type == "block_actions":
-            # Handle button clicks (e.g. "Chat about this" in modal)
             print(f"[slack_events] handling block_actions", flush=True)
             t = threading.Thread(target=handle_block_action, args=(payload,))
+            t.start()
+            t.join(timeout=10)
+            return "", 200
+
+        if payload_type == "view_submission":
+            # Handle modal submit (e.g. "Chat about this")
+            print(f"[slack_events] handling view_submission", flush=True)
+            t = threading.Thread(target=handle_view_submission, args=(payload,))
             t.start()
             t.join(timeout=10)
             return "", 200
