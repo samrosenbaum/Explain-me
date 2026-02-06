@@ -4,6 +4,7 @@ import hmac
 import time
 import os
 import threading
+import urllib.request
 
 from flask import Flask, request, jsonify
 
@@ -173,19 +174,15 @@ def handle_block_action(payload):
             traceback.print_exc()
 
 
-def handle_view_submission(payload):
-    """Handle modal submit — process follow-up question, return updated view."""
-    from slack_app import (
-        chat_response, build_explanation_modal_view, build_modal_metadata,
-        CHAT_SYSTEM_PROMPT,
-    )
-
+def parse_view_submission(payload):
+    """Parse the view_submission and return (view_id, question, original_text, conversation, initial_explanation) or None."""
     view = payload.get("view", {})
     callback_id = view.get("callback_id")
 
     if callback_id != "eli5_followup":
         return None
 
+    view_id = view.get("id")
     metadata = view.get("private_metadata", "{}")
     try:
         data = json.loads(metadata)
@@ -199,31 +196,12 @@ def handle_view_submission(payload):
     values = view.get("state", {}).get("values", {})
     followup_block = values.get("followup_block", {})
     followup_input = followup_block.get("followup_input", {})
-    question = followup_input.get("value", "").strip()
+    question = (followup_input.get("value") or "").strip()
 
     if not question:
         return None
 
-    # Build message history for AI
-    messages = [
-        {"role": "user", "content": f"Original message to explain:\n{original_text}"},
-    ]
-    for entry in conversation:
-        messages.append(entry)
-    messages.append({"role": "user", "content": question})
-
-    try:
-        answer = chat_response(messages)
-    except Exception as exc:
-        print(f"[view_submission] AI error: {exc}", flush=True)
-        answer = "Sorry, I had trouble with that question. Try asking differently!"
-
-    # Update conversation history
-    conversation.append({"role": "user", "content": question})
-    conversation.append({"role": "assistant", "content": answer})
-
     # Extract the initial explanation from the current blocks
-    # (everything between the first divider and the follow-up section)
     blocks = view.get("blocks", [])
     explanation_parts = []
     in_explanation = False
@@ -239,10 +217,7 @@ def handle_view_submission(payload):
                 explanation_parts.append(text)
     initial_explanation = "\n\n".join(explanation_parts)
 
-    # Return updated view
-    return build_explanation_modal_view(
-        original_text, initial_explanation, conversation
-    )
+    return view_id, question, original_text, conversation, initial_explanation
 
 
 def handle_view_closed(payload):
@@ -399,6 +374,57 @@ def handle_reaction_event(event):
         print(f"[reaction_event] Error: {exc}", flush=True)
 
 
+@app.route("/api/followup", methods=["POST"])
+def handle_followup_request():
+    """Process a follow-up question asynchronously (called by view_submission handler)."""
+    data = request.get_json()
+
+    # Simple auth — verify caller knows our signing secret
+    if data.get("secret") != os.environ.get("SLACK_SIGNING_SECRET"):
+        return "", 403
+
+    view_id = data["view_id"]
+    question = data["question"]
+    original_text = data["original_text"]
+    conversation = data["conversation"]
+    initial_explanation = data["initial_explanation"]
+
+    from slack_sdk import WebClient
+    from slack_app import (
+        chat_response, build_explanation_modal_view, SLACK_BOT_TOKEN,
+    )
+    client = WebClient(token=SLACK_BOT_TOKEN)
+
+    messages = [
+        {"role": "user", "content": f"Original message to explain:\n{original_text}"},
+    ]
+    for entry in conversation:
+        messages.append(entry)
+    messages.append({"role": "user", "content": question})
+
+    try:
+        answer = chat_response(messages)
+    except Exception as exc:
+        print(f"[followup] AI error: {exc}", flush=True)
+        answer = "Sorry, I had trouble with that question. Try asking differently!"
+
+    updated_conv = list(conversation) + [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer},
+    ]
+    final_view = build_explanation_modal_view(
+        original_text, initial_explanation, updated_conv
+    )
+
+    try:
+        client.views_update(view_id=view_id, view=final_view)
+        print(f"[followup] Modal updated successfully", flush=True)
+    except Exception as exc:
+        print(f"[followup] views.update error: {exc}", flush=True)
+
+    return {"ok": True}
+
+
 @app.route("/api/health", methods=["GET"])
 def health_check():
     return {"ok": True}
@@ -439,12 +465,56 @@ def slack_events():
             return "", 200
 
         if payload_type == "view_submission":
-            # Handle follow-up questions in modal
             print(f"[slack_events] handling view_submission", flush=True)
-            updated_view = handle_view_submission(payload)
-            if updated_view:
-                return jsonify({"response_action": "update", "view": updated_view})
-            return "", 200
+            parsed = parse_view_submission(payload)
+            if parsed:
+                view_id, question, original_text, conversation, initial_explanation = parsed
+                print(f"[view_submission] q={question[:50]}, vid={view_id}", flush=True)
+
+                from slack_app import build_explanation_modal_view
+
+                # Build "Thinking..." view to return immediately (within 3s)
+                thinking_conv = list(conversation) + [
+                    {"role": "user", "content": question},
+                    {"role": "assistant", "content": ":hourglass_flowing_sand: Thinking..."},
+                ]
+                thinking_view = build_explanation_modal_view(
+                    original_text, initial_explanation, thinking_conv
+                )
+
+                # Fire off async request to /api/followup (new Vercel function)
+                host = request.host  # capture before thread starts
+                followup_data = json.dumps({
+                    "secret": os.environ.get("SLACK_SIGNING_SECRET"),
+                    "view_id": view_id,
+                    "question": question,
+                    "original_text": original_text,
+                    "conversation": conversation,
+                    "initial_explanation": initial_explanation,
+                }).encode()
+
+                def trigger_followup():
+                    try:
+                        req = urllib.request.Request(
+                            f"https://{host}/api/followup",
+                            data=followup_data,
+                            headers={"Content-Type": "application/json"},
+                        )
+                        urllib.request.urlopen(req, timeout=30)
+                    except Exception as exc:
+                        print(f"[trigger_followup] Error: {exc}", flush=True)
+
+                t = threading.Thread(target=trigger_followup)
+                t.start()
+
+                # Return thinking view immediately — /api/followup will update with answer
+                return jsonify({"response_action": "update", "view": thinking_view})
+
+            # No question entered — show validation error
+            return jsonify({
+                "response_action": "errors",
+                "errors": {"followup_block": "Please type a question first!"}
+            })
 
         if payload_type == "view_closed":
             # Send conversation recap to DM when modal closes
