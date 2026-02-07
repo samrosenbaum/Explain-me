@@ -448,7 +448,12 @@ def slack_events():
     body_bytes = request.get_data()
     body = request.get_json(silent=True) or {}
 
-    print(f"[slack_events] content_type={request.content_type}", flush=True)
+    print(f"[slack_events] content_type={request.content_type}, body_type={body.get('type')}", flush=True)
+
+    # Skip Slack retries — we already handled the first attempt
+    if request.headers.get("X-Slack-Retry-Num"):
+        print(f"[slack_events] Skipping retry #{request.headers.get('X-Slack-Retry-Num')}", flush=True)
+        return jsonify({"ok": True})
 
     # Handle Slack URL verification challenge
     if body.get("type") == "url_verification":
