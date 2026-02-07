@@ -28,7 +28,7 @@ AI_GATEWAY_MODEL = os.environ.get(
     "AI_GATEWAY_MODEL", "anthropic/claude-sonnet-4-20250514"
 )
 AI_GATEWAY_CHAT_MODEL = os.environ.get(
-    "AI_GATEWAY_CHAT_MODEL", "anthropic/claude-haiku-3-5-20241022"
+    "AI_GATEWAY_CHAT_MODEL", "anthropic/claude-haiku-4-5-20251001"
 )
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
@@ -287,7 +287,7 @@ def chat_response(messages: list) -> str:
 
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
-            model="claude-haiku-3-5-20241022",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             system=CHAT_SYSTEM_PROMPT,
             messages=messages,
