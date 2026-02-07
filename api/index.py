@@ -4,7 +4,6 @@ import hmac
 import time
 import os
 import threading
-import urllib.request
 
 from flask import Flask, request, jsonify
 
@@ -377,10 +376,12 @@ def handle_reaction_event(event):
 @app.route("/api/followup", methods=["POST"])
 def handle_followup_request():
     """Process a follow-up question asynchronously (called by view_submission handler)."""
+    print(f"[followup] Received request", flush=True)
     data = request.get_json()
 
     # Simple auth — verify caller knows our signing secret
     if data.get("secret") != os.environ.get("SLACK_SIGNING_SECRET"):
+        print(f"[followup] Auth failed", flush=True)
         return "", 403
 
     view_id = data["view_id"]
@@ -388,12 +389,15 @@ def handle_followup_request():
     original_text = data["original_text"]
     conversation = data["conversation"]
     initial_explanation = data["initial_explanation"]
+    print(f"[followup] question={question[:50]}, view_id={view_id}", flush=True)
 
     from slack_sdk import WebClient
     from slack_app import (
         chat_response, build_explanation_modal_view, SLACK_BOT_TOKEN,
+        AI_GATEWAY_CHAT_MODEL,
     )
     client = WebClient(token=SLACK_BOT_TOKEN)
+    print(f"[followup] Using chat model: {AI_GATEWAY_CHAT_MODEL}", flush=True)
 
     messages = [
         {"role": "user", "content": f"Original message to explain:\n{original_text}"},
@@ -404,8 +408,11 @@ def handle_followup_request():
 
     try:
         answer = chat_response(messages)
+        print(f"[followup] Got AI answer ({len(answer)} chars)", flush=True)
     except Exception as exc:
+        import traceback
         print(f"[followup] AI error: {exc}", flush=True)
+        traceback.print_exc()
         answer = "Sorry, I had trouble with that question. Try asking differently!"
 
     updated_conv = list(conversation) + [
@@ -420,7 +427,9 @@ def handle_followup_request():
         client.views_update(view_id=view_id, view=final_view)
         print(f"[followup] Modal updated successfully", flush=True)
     except Exception as exc:
+        import traceback
         print(f"[followup] views.update error: {exc}", flush=True)
+        traceback.print_exc()
 
     return {"ok": True}
 
@@ -483,30 +492,31 @@ def slack_events():
                     original_text, initial_explanation, thinking_conv
                 )
 
-                # Fire off async request to /api/followup (new Vercel function)
-                host = request.host  # capture before thread starts
-                followup_data = json.dumps({
+                # Send request to /api/followup synchronously — this ensures
+                # the data reaches Vercel before we return the response.
+                # We use http.client so we can send without waiting for the
+                # response (the /api/followup function runs independently).
+                import http.client as _http
+                host = request.host
+                followup_body = json.dumps({
                     "secret": os.environ.get("SLACK_SIGNING_SECRET"),
                     "view_id": view_id,
                     "question": question,
                     "original_text": original_text,
                     "conversation": conversation,
                     "initial_explanation": initial_explanation,
-                }).encode()
+                })
 
-                def trigger_followup():
-                    try:
-                        req = urllib.request.Request(
-                            f"https://{host}/api/followup",
-                            data=followup_data,
-                            headers={"Content-Type": "application/json"},
-                        )
-                        urllib.request.urlopen(req, timeout=30)
-                    except Exception as exc:
-                        print(f"[trigger_followup] Error: {exc}", flush=True)
-
-                t = threading.Thread(target=trigger_followup)
-                t.start()
+                try:
+                    conn = _http.HTTPSConnection(host, timeout=3)
+                    conn.request(
+                        "POST", "/api/followup",
+                        body=followup_body,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    print(f"[view_submission] Sent followup request to {host}", flush=True)
+                except Exception as exc:
+                    print(f"[view_submission] Failed to send followup: {exc}", flush=True)
 
                 # Return thinking view immediately — /api/followup will update with answer
                 return jsonify({"response_action": "update", "view": thinking_view})
