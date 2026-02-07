@@ -334,7 +334,10 @@ def handle_reaction_event(event):
     from slack_sdk import WebClient
     from slack_app import SLACK_BOT_TOKEN, CHAT_TRIGGER_EMOJIS
 
-    if event.get("reaction") not in CHAT_TRIGGER_EMOJIS:
+    reaction = event.get("reaction")
+    print(f"[reaction_event] Reaction: {reaction}, triggers: {CHAT_TRIGGER_EMOJIS}", flush=True)
+
+    if reaction not in CHAT_TRIGGER_EMOJIS:
         return
 
     client = WebClient(token=SLACK_BOT_TOKEN)
