@@ -620,7 +620,7 @@ def slack_events():
         if event_type == "reaction_added":
             t = threading.Thread(target=handle_reaction_event, args=(event,))
             t.start()
-            # Return immediately — no join needed, handler is fast (~1s of API calls)
+            t.join(timeout=5)  # Keep alive for API calls — events don't show error toasts
             return jsonify({"ok": True})
 
         # Ack other events we don't handle directly
