@@ -2,6 +2,7 @@
   "rewrites": [
     { "source": "/api/slack/events", "destination": "/api" },
     { "source": "/api/health", "destination": "/api" },
-    { "source": "/api/followup", "destination": "/api" }
+    { "source": "/api/followup", "destination": "/api" },
+    { "source": "/api/explain", "destination": "/api" }
   ]
 }

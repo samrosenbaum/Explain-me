@@ -36,27 +36,24 @@ def verify_slack_signature(body_bytes):
     return hmac.compare_digest(my_signature, signature)
 
 
-def handle_shortcut_async(payload):
-    """Handle shortcut in a way that completes before the function dies."""
+def handle_explain_request(data):
+    """Process the explanation in a separate Vercel function invocation."""
     from slack_sdk import WebClient
     from slack_app import (
-        extract_message_text, get_explanation, open_loading_modal,
+        extract_message_text, get_explanation,
         update_modal_with_explanation, format_explanation_blocks,
         SLACK_BOT_TOKEN,
     )
 
+    view_id = data["view_id"]
+    payload = data["payload"]
     client = WebClient(token=SLACK_BOT_TOKEN)
     callback_id = payload.get("callback_id")
     message = payload.get("message", {})
-    text, images = extract_message_text(message, client=client)
-    trigger_id = payload.get("trigger_id")
     channel_id = payload.get("channel", {}).get("id")
     message_ts = message.get("ts")
 
-    try:
-        view_id = open_loading_modal(client, trigger_id)
-    except Exception:
-        return
+    text, images = extract_message_text(message, client=client)
 
     if not text and not images:
         client.views_update(
@@ -100,7 +97,7 @@ def handle_shortcut_async(payload):
 
     except Exception as exc:
         import traceback
-        print(f"[shortcut] Error: {exc}", flush=True)
+        print(f"[explain] Error: {exc}", flush=True)
         traceback.print_exc()
         client.views_update(
             view_id=view_id,
@@ -376,6 +373,17 @@ def handle_reaction_event(event):
         print(f"[reaction_event] Error: {exc}", flush=True)
 
 
+@app.route("/api/explain", methods=["POST"])
+def explain_endpoint():
+    """Process explanation async (called by shortcut handler via self-call)."""
+    data = request.get_json()
+    if data.get("secret") != os.environ.get("SLACK_SIGNING_SECRET"):
+        return "", 403
+    print(f"[explain] Processing explanation for view_id={data.get('view_id')}", flush=True)
+    handle_explain_request(data)
+    return {"ok": True}
+
+
 @app.route("/api/followup", methods=["POST"])
 def handle_followup_request():
     """Process a follow-up question asynchronously (called by view_submission handler)."""
@@ -468,11 +476,37 @@ def slack_events():
         print(f"[slack_events] payload_type={payload_type}", flush=True)
 
         if payload_type in ("shortcut", "message_action"):
-            # Start processing in a thread, respond to Slack immediately
-            t = threading.Thread(target=handle_shortcut_async, args=(payload,))
-            t.start()
-            # Wait for it to complete (Vercel keeps function alive until response)
-            t.join(timeout=25)
+            from slack_sdk import WebClient
+            from slack_app import SLACK_BOT_TOKEN, open_loading_modal
+
+            # Open loading modal immediately (within 3s)
+            client = WebClient(token=SLACK_BOT_TOKEN)
+            trigger_id = payload.get("trigger_id")
+            try:
+                view_id = open_loading_modal(client, trigger_id)
+            except Exception as exc:
+                print(f"[shortcut] Failed to open modal: {exc}", flush=True)
+                return "", 200
+
+            # Fire off self-call to /api/explain for the heavy work
+            import http.client as _http
+            host = request.host
+            explain_data = json.dumps({
+                "secret": os.environ.get("SLACK_SIGNING_SECRET"),
+                "view_id": view_id,
+                "payload": payload,
+            })
+            try:
+                conn = _http.HTTPSConnection(host, timeout=3)
+                conn.request(
+                    "POST", "/api/explain",
+                    body=explain_data,
+                    headers={"Content-Type": "application/json"},
+                )
+                print(f"[shortcut] Sent explain request to {host}", flush=True)
+            except Exception as exc:
+                print(f"[shortcut] Failed to send explain request: {exc}", flush=True)
+
             return "", 200
 
         if payload_type == "block_actions":
