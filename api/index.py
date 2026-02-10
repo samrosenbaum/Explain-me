@@ -354,9 +354,9 @@ def handle_dm_event(event):
 
 
 def handle_reaction_event(event):
-    """Handle a reaction_added event directly."""
+    """Handle a reaction_added event — auto-explain the message via DM."""
     from slack_sdk import WebClient
-    from slack_app import SLACK_BOT_TOKEN, CHAT_TRIGGER_EMOJIS
+    from slack_app import SLACK_BOT_TOKEN, CHAT_TRIGGER_EMOJIS, get_explanation
 
     reaction = event.get("reaction")
     print(f"[reaction_event] Reaction: {reaction}, triggers: {CHAT_TRIGGER_EMOJIS}", flush=True)
@@ -388,14 +388,28 @@ def handle_reaction_event(event):
         dm = client.conversations_open(users=[user_id])
         dm_channel = dm["channel"]["id"]
         preview = f"{original_text[:500]}{'...' if len(original_text) > 500 else ''}"
-        client.chat_postMessage(
+
+        # Send a quick "working on it" message
+        loading_msg = client.chat_postMessage(
             channel=dm_channel,
+            text=f":robot_face: Got it! Let me explain this for you...\n\n>{preview}",
+        )
+
+        # Generate the explanation
+        explanation = get_explanation(original_text)
+
+        # Update with the full explanation
+        client.chat_update(
+            channel=dm_channel,
+            ts=loading_msg["ts"],
             text=(
-                "Hey! I saw you wanted to chat about this message:\n\n"
                 f">{preview}\n\n"
-                "What would you like me to explain? Ask me anything!"
+                f"{explanation}\n\n"
+                "Feel free to ask me follow-up questions!"
             ),
         )
+        print(f"[reaction_event] Sent explanation to {user_id}", flush=True)
+
     except Exception as exc:
         print(f"[reaction_event] Error: {exc}", flush=True)
 
@@ -620,7 +634,7 @@ def slack_events():
         if event_type == "reaction_added":
             t = threading.Thread(target=handle_reaction_event, args=(event,))
             t.start()
-            t.join(timeout=5)  # Keep alive for API calls — events don't show error toasts
+            t.join(timeout=25)  # Needs time for AI call — events don't show error toasts
             return jsonify({"ok": True})
 
         # Ack other events we don't handle directly
