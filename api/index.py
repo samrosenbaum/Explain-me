@@ -404,6 +404,7 @@ def handle_followup_request():
 
     messages = [
         {"role": "user", "content": f"Original message to explain:\n{original_text}"},
+        {"role": "assistant", "content": initial_explanation},
     ]
     for entry in conversation:
         messages.append(entry)
