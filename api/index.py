@@ -126,21 +126,49 @@ def handle_block_action(payload):
     action_id = actions[0].get("action_id")
     print(f"[block_action] action_id={action_id}")
 
-    if action_id == "chat_about_this":
-        user_id = payload.get("user", {}).get("id")
-        view = payload.get("view", {})
-        view_id = view.get("id")
-        metadata = view.get("private_metadata", "{}")
+    user_id = payload.get("user", {}).get("id")
+    view = payload.get("view", {})
+    metadata = view.get("private_metadata", "{}")
+
+    try:
+        data = json.loads(metadata)
+    except Exception:
+        data = {}
+
+    if not user_id:
+        print("[block_action] No user_id")
+        return
+
+    if action_id == "dm_explanation":
+        original_text = data.get("original_text", "")
+        explanation = data.get("explanation", "")
+        conversation = data.get("conversation", [])
 
         try:
-            data = json.loads(metadata)
-            original_text = data.get("original_text", "")
-        except Exception:
-            original_text = ""
+            dm = client.conversations_open(users=[user_id])
+            dm_channel = dm["channel"]["id"]
 
-        if not user_id:
-            print("[block_action] No user_id")
-            return
+            # Build the DM with full explanation + follow-ups
+            msg = ":robot_face: *Here's your ELI5 for reference:*\n\n"
+            if original_text:
+                preview = f"{original_text[:300]}{'...' if len(original_text) > 300 else ''}"
+                msg += f"*Original message:*\n>{preview}\n\n"
+            if explanation:
+                msg += f"{explanation}\n\n"
+            for entry in conversation:
+                if entry["role"] == "user":
+                    msg += f"*You asked:* {entry['content']}\n\n"
+                else:
+                    msg += f"{entry['content']}\n\n"
+
+            client.chat_postMessage(channel=dm_channel, text=msg)
+        except Exception as exc:
+            print(f"[block_action] DM error: {exc}")
+            traceback.print_exc()
+
+    elif action_id == "chat_about_this":
+        original_text = data.get("original_text", "")
+        view_id = view.get("id")
 
         try:
             dm = client.conversations_open(users=[user_id])
@@ -154,7 +182,6 @@ def handle_block_action(payload):
                     "What would you like me to explain? Ask me anything!"
                 ),
             )
-            # Update modal to confirm DM was sent
             if view_id:
                 client.views_update(
                     view_id=view_id,

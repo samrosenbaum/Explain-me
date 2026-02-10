@@ -379,17 +379,22 @@ def open_loading_modal(client, trigger_id):
     return result["view"]["id"]
 
 
-def build_modal_metadata(original_text, conversation=None):
+def build_modal_metadata(original_text, explanation="", conversation=None):
     """Build private_metadata JSON for the modal. Stays under 3000 char limit."""
     import json as _json
     data = {
         "original_text": original_text[:800],
+        "explanation": explanation[:1000],
         "conversation": conversation or [],
     }
     result = _json.dumps(data)
     # Truncate conversation if metadata is too long
     while len(result) > 2900 and data["conversation"]:
         data["conversation"].pop(0)
+        result = _json.dumps(data)
+    # If still too long, trim explanation
+    while len(result) > 2900 and len(data["explanation"]) > 100:
+        data["explanation"] = data["explanation"][:len(data["explanation"]) // 2]
         result = _json.dumps(data)
     return result
 
@@ -423,6 +428,16 @@ def build_explanation_modal_view(original_text, explanation, conversation=None):
 
     blocks.append({"type": "divider"})
     blocks.append({
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": ":envelope: DM to me"},
+                "action_id": "dm_explanation",
+            },
+        ],
+    })
+    blocks.append({
         "type": "input",
         "block_id": "followup_block",
         "optional": True,
@@ -434,7 +449,7 @@ def build_explanation_modal_view(original_text, explanation, conversation=None):
         "label": {"type": "plain_text", "text": "Want to dig deeper?"},
     })
 
-    metadata = build_modal_metadata(original_text, conversation)
+    metadata = build_modal_metadata(original_text, explanation, conversation)
 
     return {
         "type": "modal",
